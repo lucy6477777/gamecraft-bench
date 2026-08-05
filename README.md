@@ -46,8 +46,9 @@ The strongest evaluated configuration reaches **65.70%** overall.
 
 | Harness | Model | Date | Overall | Mechanics | Depth | Visuals | Art |
 |---|---|---:|---:|---:|---:|---:|---:|
-| Claude Code | Fable 5 high | 2026-07-20 | **66.64** | **76.52** | **58.61** | **66.93** | **67.68** |
+| Claude Code | Fable 5 high | 2026-07-20 | **65.72** | **76.52** | **58.61** | **66.93** | **67.68** |
 | Codex | GPT-5.6-sol high | 2026-07-17 | 60.50 | 74.50 | 56.10 | 64.80 | 57.00 |
+| Kimi Code | Kimi-K3 | 2026-08-05 | 56.96 | 73.03 | 53.38 | 56.90 | 53.59 |
 | SeeleAgent | Seele02-pro | 2026-07-15 | 50.70 | 68.42 | 48.76 | 52.74 | 44.17 |
 | Claude Code | Opus-4.7 high | 2026-06-16 | 41.46 | 55.34 | 39.48 | 42.78 | 36.86 |
 | Codex | GPT-5.5 high | 2026-06-16 | 39.49 | 54.36 | 38.61 | 41.84 | 32.94 |
