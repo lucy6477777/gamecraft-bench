@@ -46,14 +46,14 @@ The strongest evaluated configuration reaches **65.70%** overall.
 
 | Harness | Model | Model Type | Date | Overall | Mechanics | Depth | Visuals | Art |
 |---|---|---|---:|---:|---:|---:|---:|---:|
-| Claude Code | Fable 5 high | Vison | 2026-07-20 | **65.72** | **76.52** | **58.61** | **66.93** | **67.68** |
-| Codex | GPT-5.6-sol high | Vison | 2026-07-17 | 60.50 | 74.50 | 56.10 | 64.80 | 57.00 |
-| Kimi Code | Kimi-K3 | Vison | 2026-08-05 | 56.96 | 73.03 | 53.38 | 56.90 | 53.59 |
-| SeeleAgent | Seele02-pro | Vison | 2026-07-15 | 50.70 | 68.42 | 48.76 | 52.74 | 44.17 |
-| Claude Code | Opus-4.7 high | Vison | 2026-06-16 | 41.46 | 55.34 | 39.48 | 42.78 | 36.86 |
-| Codex | GPT-5.5 high | Vison | 2026-06-16 | 39.49 | 54.36 | 38.61 | 41.84 | 32.94 |
-| Kimi Code | Kimi-K2.6 | Vison | 2026-06-16 | 30.65 | 39.76 | 28.07 | 33.66 | 27.99 |
+| Claude Code | Fable 5 high | Vision | 2026-07-20 | **65.72** | **76.52** | **58.61** | **66.93** | **67.68** |
+| Codex | GPT-5.6-sol high | Vision | 2026-07-17 | 60.50 | 74.50 | 56.10 | 64.80 | 57.00 |
+| Kimi Code | Kimi-K3 | Vision | 2026-08-05 | 56.96 | 73.03 | 53.38 | 56.90 | 53.59 |
+| SeeleAgent | Seele02-pro | Vision | 2026-07-15 | 50.70 | 68.42 | 48.76 | 52.74 | 44.17 |
+| Claude Code | Opus-4.7 high | Vision | 2026-06-16 | 41.46 | 55.34 | 39.48 | 42.78 | 36.86 |
+| Codex | GPT-5.5 high | Vision | 2026-06-16 | 39.49 | 54.36 | 38.61 | 41.84 | 32.94 |
 | Claude Code | Deepseek-V4-Flash-0731 | Text | 2026-08-10 | 30.66 | 40.55 | 27.56 | 32.21 | 28.81 |
+| Kimi Code | Kimi-K2.6 | Vision | 2026-06-16 | 30.65 | 39.76 | 28.07 | 33.66 | 27.99 |
 | Claude Code | MiMo-V2.5-Pro | Text | 2026-06-16 | 24.10 | 32.33 | 22.59 | 27.45 | 20.65 |
 | Code Buddy | GLM-5.1 | Text | 2026-06-16 | 18.29 | 25.23 | 17.80 | 21.14 | 14.59 |
 | Code Buddy | MiniMax-M2.7 | Text | 2026-06-16 | 10.95 | 14.27 | 9.92 | 14.92 | 8.85 |
