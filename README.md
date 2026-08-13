@@ -46,18 +46,20 @@ The strongest evaluated configuration reaches **65.70%** overall.
 
 | Harness | Model | Model Type | Date | Overall | Mechanics | Depth | Visuals | Art |
 |---|---|---|---:|---:|---:|---:|---:|---:|
-| Claude Code | Fable 5 high | Vision | 2026-07-20 | **65.72** | **76.52** | **58.61** | **66.93** | **67.68** |
-| Codex | GPT-5.6-sol high | Vision | 2026-07-17 | 60.50 | 74.50 | 56.10 | 64.80 | 57.00 |
-| Kimi Code | Kimi-K3 | Vision | 2026-08-05 | 56.96 | 73.03 | 53.38 | 56.90 | 53.59 |
-| SeeleAgent | Seele02-pro | Vision | 2026-07-15 | 50.70 | 68.42 | 48.76 | 52.74 | 44.17 |
-| Claude Code | Opus-4.7 high | Vision | 2026-06-16 | 41.46 | 55.34 | 39.48 | 42.78 | 36.86 |
-| Codex | GPT-5.5 high | Vision | 2026-06-16 | 39.49 | 54.36 | 38.61 | 41.84 | 32.94 |
-| Claude Code | Deepseek-V4-Flash-0731 | Text | 2026-08-10 | 30.66 | 40.55 | 27.56 | 32.21 | 28.81 |
-| Kimi Code | Kimi-K2.6 | Vision | 2026-06-16 | 30.65 | 39.76 | 28.07 | 33.66 | 27.99 |
-| Claude Code | MiMo-V2.5-Pro | Text | 2026-06-16 | 24.10 | 32.33 | 22.59 | 27.45 | 20.65 |
-| Code Buddy | GLM-5.1 | Text | 2026-06-16 | 18.29 | 25.23 | 17.80 | 21.14 | 14.59 |
-| Code Buddy | MiniMax-M2.7 | Text | 2026-06-16 | 10.95 | 14.27 | 9.92 | 14.92 | 8.85 |
-| Codex | DeepSeek-V4-Pro | Text | 2026-06-16 | 2.15 | 2.25 | 1.69 | 1.97 | 2.63 |
+| Claude Code | Opus 5 xhigh | Vision | 2026-07-24 | **68.44** | **76.75** | **63.31** | **68.04** | **70.11** |
+| Claude Code | Fable 5 high | Vision | 2026-06-09 | 65.72 | 76.52 | 58.61 | 66.93 | 67.68 |
+| Codex | GPT-5.6-sol high | Vision | 2026-07-09 | 60.50 | 74.50 | 56.10 | 64.80 | 57.00 |
+| Kimi Code | Kimi-K3 | Vision | 2026-07-16 | 56.96 | 73.03 | 53.38 | 56.90 | 53.59 |
+| SeeleAgent | Seele02-pro | Vision | 2026-07-09 | 50.70 | 68.42 | 48.76 | 52.74 | 44.17 |
+| Claude Code | Opus-4.7 high | Vision | 2026-04-16 | 41.46 | 55.34 | 39.48 | 42.78 | 36.86 |
+| Claude Code | Deepseek-V4-Flash-0731 | Text | 2026-07-31 | 40.61 | 52.11 | 37.14 | 43.70 | 37.72 |
+| Codex | GPT-5.5 high | Vision | 2026-04-23 | 39.49 | 54.36 | 38.61 | 41.84 | 32.94 |
+| Claude Code | GLM-5.2	| Text| 2026-06-16 | 39.12 | 50.09 | 36.40 | 41.06 | 36.29 |
+| Kimi Code | Kimi-K2.6 | Vision | 2026-04-20 | 30.65 | 39.76 | 28.07 | 33.66 | 27.99 |
+| Claude Code | MiMo-V2.5-Pro | Text | 2026-04-23 | 24.10 | 32.33 | 22.59 | 27.45 | 20.65 |
+| Code Buddy | GLM-5.1 | Text | 2026-04-07 | 18.29 | 25.23 | 17.80 | 21.14 | 14.59 |
+| Code Buddy | MiniMax-M2.7 | Text | 2026-03-18 | 10.95 | 14.27 | 9.92 | 14.92 | 8.85 |
+| Codex | DeepSeek-V4-Pro | Text | 2026-04-24 | 2.15 | 2.25 | 1.69 | 1.97 | 2.63 |
 
 Scores are percentages. Mechanics, Depth, Visuals, and Art correspond to the
 four rubric categories: Core Mechanics, Content Depth, Functional Visuals, and
