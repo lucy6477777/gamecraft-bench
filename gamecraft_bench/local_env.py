@@ -151,6 +151,17 @@ class LocalSubprocessEnvironment(BaseEnvironment):
             if p == prefix or p.startswith(prefix + "/"):
                 root = self._host_path_for_prefix(prefix)
                 return root / p[len(prefix):].lstrip("/")
+        # /tmp is bind-mounted to the per-trial runtime dir (see
+        # _build_ns_command), so an upload addressed to /tmp has to land
+        # there too. Routing it to _root/tmp instead makes the file
+        # invisible to the sandboxed process: the bind shadows it.
+        # Harbor's Codex agent depends on this path -- it uploads its
+        # effective config.toml to $CODEX_HOME=/tmp/codex-home, and when
+        # that never arrives codex silently falls back to the default
+        # openai provider and hits api.openai.com instead of the
+        # configured base_url.
+        if p == "/tmp" or p.startswith("/tmp/"):
+            return self._runtime_tmp / p[len("/tmp"):].lstrip("/")
         # Fallback: stash unknown absolute paths under sandbox/_root/...
         return self._sandbox / "_root" / p.lstrip("/")
 
