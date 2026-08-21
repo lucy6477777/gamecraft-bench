@@ -183,6 +183,7 @@ def env_for_subprocess() -> dict[str, str]:
     for var in (
         # Proxy-imposed request-body cap (see judges/openai_gpt.py).
         "GAMECRAFT_BENCH_JUDGE_MAX_FRAMES",
+        "GAMECRAFT_BENCH_JUDGE_MAX_BODY_MB",
         "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
         "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_EXTRA_HEADERS_JSON",
         "KIMI_API_KEY", "KIMI_BASE_URL",

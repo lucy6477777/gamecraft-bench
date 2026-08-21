@@ -35,6 +35,9 @@ from .base import JudgeError, JudgeRequest, JudgeResponse, MultimodalJudge
 # Override with GAMECRAFT_BENCH_JUDGE_MAX_FRAMES; the default is unchanged.
 _MAX_FRAMES = max(1, int(os.environ.get("GAMECRAFT_BENCH_JUDGE_MAX_FRAMES") or 40))
 _MAX_TOKENS = 2048
+# Optional payload budget in MB for one judge request (0/unset = no budget,
+# i.e. official behaviour). See _select_frames for why bytes beat frame count.
+_MAX_BODY_BYTES = int(float(os.environ.get("GAMECRAFT_BENCH_JUDGE_MAX_BODY_MB") or 0) * 1_000_000)
 
 
 def _parse_sse_to_text(raw: str) -> str:
@@ -62,11 +65,33 @@ def _data_uri(path: Path) -> str:
     return f"data:image/png;base64,{b64}"
 
 
-def _select_frames(frames: list[Path]) -> list[Path]:
-    if len(frames) <= _MAX_FRAMES:
+def _evenly_spaced(frames: list[Path], n: int) -> list[Path]:
+    if len(frames) <= n:
         return list(frames)
-    step = len(frames) / float(_MAX_FRAMES)
-    return [frames[min(int(i * step), len(frames) - 1)] for i in range(_MAX_FRAMES)]
+    step = len(frames) / float(n)
+    return [frames[min(int(i * step), len(frames) - 1)] for i in range(n)]
+
+
+def _select_frames(frames: list[Path]) -> list[Path]:
+    """Evenly-spaced subset, capped by count and (optionally) by payload size.
+
+    The count cap alone is not safe on a proxy with an HTTP body limit,
+    because frame *bytes* vary with how much art is on screen. Measured on
+    one task: a shapes-only reference build averaged 61-88 KB per frame
+    while an agent build using real sprite assets averaged 109-156 KB --
+    so the same frame count is 3.4 MB for one and 6.0 MB for the other.
+    Capping on count therefore fails exactly on the richer-looking build,
+    which biases scoring against better art. Budget on bytes instead.
+    """
+    picked = _evenly_spaced(frames, _MAX_FRAMES)
+    if _MAX_BODY_BYTES <= 0:
+        return picked
+    # base64 inflates by 4/3; leave the remainder for prompt + JSON overhead.
+    def encoded(sel: list[Path]) -> int:
+        return int(sum(f.stat().st_size for f in sel) * 4 / 3)
+    while len(picked) > 1 and encoded(picked) > _MAX_BODY_BYTES:
+        picked = _evenly_spaced(picked, len(picked) - 1)
+    return picked
 
 
 def _extra_headers() -> dict[str, str]:
