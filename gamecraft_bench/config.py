@@ -181,6 +181,8 @@ def env_for_subprocess() -> dict[str, str]:
     # Use GAMECRAFT_BENCH_JUDGE_* when the judge needs a different key/url
     # than the agent.
     for var in (
+        # Proxy-imposed request-body cap (see judges/openai_gpt.py).
+        "GAMECRAFT_BENCH_JUDGE_MAX_FRAMES",
         "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL",
         "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_EXTRA_HEADERS_JSON",
         "KIMI_API_KEY", "KIMI_BASE_URL",

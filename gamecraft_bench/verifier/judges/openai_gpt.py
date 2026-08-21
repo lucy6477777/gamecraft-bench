@@ -27,7 +27,13 @@ from pathlib import Path
 from . import _common
 from .base import JudgeError, JudgeRequest, JudgeResponse, MultimodalJudge
 
-_MAX_FRAMES = 40
+# Upper bound on frames sent in one chat-completions request. The official
+# default is 40. Some OpenAI-compatible proxies cap the HTTP body well below
+# what 40 full-size PNG frames encode to (measured on one internal router:
+# 36 frames / ~4.18 MB -> 200, 38 frames / ~4.46 MB -> 413 body_too_large),
+# and a 413 makes the whole demo score 0 rather than degrading gracefully.
+# Override with GAMECRAFT_BENCH_JUDGE_MAX_FRAMES; the default is unchanged.
+_MAX_FRAMES = max(1, int(os.environ.get("GAMECRAFT_BENCH_JUDGE_MAX_FRAMES") or 40))
 _MAX_TOKENS = 2048
 
 

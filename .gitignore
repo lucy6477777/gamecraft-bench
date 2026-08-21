@@ -48,3 +48,6 @@ Thumbs.db
 .env
 .env.local
 .envrc
+
+# local run logs
+*.log
