@@ -1,0 +1,88 @@
+{
+  "score_formula": "BUILD * (0.15*((M1+M2+M3)/3) + 0.35*((D1+D2+D3+D4)/4) + 0.15*((V1+V2+V3)/3) + 0.35*((A1+A2+A3+A4)/4))",
+  "max_demos": 10,
+  "max_demo_seconds": 20,
+  "build_check": {
+    "id": "BUILD",
+    "cmd": "godot --headless --path /workspace/game --quit-after 5",
+    "description": "The project launches with the headless command, exits with code 0, and produces no fatal errors. Returns 0 or 1; the rest of the score is multiplied by this gate."
+  },
+  "categories": [
+    { "name": "Core Mechanics", "items": ["M1", "M2", "M3"] },
+    { "name": "Content Depth", "items": ["D1", "D2", "D3", "D4"] },
+    { "name": "Functional Visuals", "items": ["V1", "V2", "V3"] },
+    { "name": "Presentation & Art", "items": ["A1", "A2", "A3", "A4"] }
+  ],
+  "requirements": [
+    {
+      "id": "M1",
+      "agg": "max",
+      "description": "Tower placement is gated by cushion slots and by Kibble. Selecting a cat type reveals round cushion slots beside the path; the slots are hidden again when placement is cancelled, and cats can only be placed on a cushion. Placing a cat deducts Kibble. Clicking a placed cat offers upgrade and sell, and selling refunds part of what was invested. Score 0 if cats can be placed anywhere, if placement is free, or if placed cats cannot be interacted with. Score 1 requires the mechanic to be presented in a visually authored context with real sprites or illustrated assets. Score 0.5 at most if the mechanic works but is represented entirely by programmatic shapes, solid-color fills, or default Godot widgets."
+    },
+    {
+      "id": "M2",
+      "agg": "max",
+      "description": "Defense is automatic: placed cats acquire the front-most enemy within their range and fire without player input. Projectiles travel to the target, enemies take damage, and enemies die and disappear when their health is exhausted. Score 0 if firing requires player input, if projectiles do not travel, or if enemies never die. Score 1 requires the mechanic to be presented in a visually authored context with real sprites or illustrated assets. Score 0.5 at most if the mechanic works but is represented entirely by programmatic shapes, solid-color fills, or default Godot widgets."
+    },
+    {
+      "id": "M3",
+      "agg": "max",
+      "description": "The path-and-leak loop works end to end: enemies spawn from the door at the top-left, follow a fixed waypoint route across the map, and reach the Golden Tuna Can at the bottom-right if not stopped. Each leak costs Sanity; ten leaks (or the Mailman boss, which costs five) drop Sanity to zero and end the run. Surviving all three waves with Sanity remaining wins. Score 0 if enemies do not follow a defined path, if leaks have no cost, or if neither a win nor a lose state can be reached. Score 1 requires the mechanic to be presented in a visually authored context with real sprites or illustrated assets. Score 0.5 at most if the mechanic works but is represented entirely by programmatic shapes, solid-color fills, or default Godot widgets."
+    },
+    {
+      "id": "D1",
+      "agg": "max",
+      "description": "Four cat types with genuinely different combat behaviour, not reskins: Spitfire Tabby fires rapidly at a single target; Sniper Siamese has much longer range, higher damage and a slow rate of fire; Chonky Orange deals splash damage in a circle with reduced damage at the edge; Boba Calico deals low damage but slows enemies to roughly half speed for about two seconds. Each has three upgrade levels whose effect differs by type. Score 0 if fewer than four types exist, if their behaviour is interchangeable, or if upgrades do nothing. Score 1 requires content variants to be visually distinct with real authored art. Score 0.5 at most if variants differ only in color or numbers on otherwise identical programmatic shapes."
+    },
+    {
+      "id": "D2",
+      "agg": "max",
+      "description": "Four enemy types filling distinct roles: the Cucumber is fast with low health, the Dust Bunny is individually weak and arrives in swarms, the Robot Vacuum is very slow with very high health, and the Mailman is a boss that appears only in the final wave, is far larger and tougher, and costs five lives instead of one if it reaches the can. Score 0 if fewer than four types exist, if they differ only in sprite, or if there is no boss. Score 1 requires content variants to be visually distinct with real authored art. Score 0.5 at most if variants differ only in color or numbers on otherwise identical programmatic shapes."
+    },
+    {
+      "id": "D3",
+      "agg": "max",
+      "description": "Three waves with the specified escalating composition: wave 1 is five Cucumbers at a slow spawn interval, wave 2 mixes eight Dust Bunnies with two Robot Vacuums at a faster interval, and wave 3 combines four Cucumbers, six Dust Bunnies and the Mailman boss. Clearing a wave pays an escalating Kibble bonus, and a countdown between waves can be skipped with Spacebar. Score 0 if there are fewer than three waves, if composition does not escalate, or if wave clears pay nothing. Score 1 requires content variants to be visually distinct with real authored art. Score 0.5 at most if variants differ only in color or numbers on otherwise identical programmatic shapes."
+    },
+    {
+      "id": "D4",
+      "agg": "max",
+      "description": "Two economy systems beyond kill rewards. Destructible obstacles: cardboard boxes and shoe piles sit on blocked positions near the path, take repeated clicks to break, pay Kibble when destroyed, and convert the space they occupied into a usable cushion position. Combo rewards: killing two or more enemies within a couple of seconds pays escalating bonus Kibble and is announced on screen. Score 0 if obstacles are absent or indestructible, if breaking one does not free the space, or if there is no combo bonus. Score 1 requires content variants to be visually distinct with real authored art. Score 0.5 at most if variants differ only in color or numbers on otherwise identical programmatic shapes."
+    },
+    {
+      "id": "V1",
+      "agg": "mean",
+      "description": "The route is legible at all times: a semi-transparent path overlay is drawn on top of the background, running from the spawn door to the defended can, so the enemy route is readable regardless of what the background art looks like. The full loop — place, wave arrives, cats fire, wave clears, next wave — can be observed without restarting the application. Score 0 if the path cannot be seen, if it is only implied by the background art, or if the loop cannot be followed to a wave clear. Score 1 requires the information to be presented in an authored visual treatment rather than raw debug drawing."
+    },
+    {
+      "id": "V2",
+      "agg": "mean",
+      "description": "The HUD reports state at a glance and does not collide with itself: current Kibble, remaining Sanity, and the current wave out of three are each visible and labelled, the cat-selection panel shows each cat with its cost, and the between-wave countdown is visible while it runs. No panel overlaps another and no label is clipped at the recorded resolution. Score 0 if any of Kibble, Sanity or wave progress is missing, or if text overlaps or is cut off. Score 1 requires the information to be presented in an authored visual treatment rather than raw debug drawing."
+    },
+    {
+      "id": "V3",
+      "agg": "mean",
+      "description": "Combat state is readable from visual cues alone: hovering a placed cat shows its range as a circle in that cat's signature colour, enemies carry health bars that change colour as they are damaged, hits produce a brief flash, slowed enemies are visibly tinted, and reward events — floating Kibble gains, the combo announcement, the wave-clear bonus — appear on screen. Score 0 if range is never shown, if enemy health is invisible, or if rewards are applied with no on-screen feedback. Score 1 requires the information to be presented in an authored visual treatment rather than raw debug drawing."
+    },
+    {
+      "id": "A1",
+      "agg": "mean",
+      "description": "Overall art-style coherence: every visible element — cat sprites, enemy sprites, projectiles, cushions, obstacles, the floor background and the HUD panels — belongs to a single consistent visual language, bright and high-saturation, with soft rounded chubby shapes rather than sharp corners. Score 0 if the screen mixes incompatible styles, or if elements are obviously unthemed placeholder shapes. Score 0.5 at most if the game uses programmatic shapes, solid-color fills, or default engine widgets for its main visible elements."
+    },
+    {
+      "id": "A2",
+      "agg": "mean",
+      "description": "The four cats and the four enemies are individually recognisable from their art, matching their described characters: an orange tabby with puffed cheeks, an elegant squinting Siamese, a fat orange cat lying down, a calico with a boba straw; a small green cucumber, a tiny grey puffball, a large round vacuum with a red light, and an outsized mailman boss. A viewer can tell which unit is which without reading a label. Score 0 if units are indistinguishable from one another or are plain geometric stand-ins. Score 0.5 at most if the game uses programmatic shapes, solid-color fills, or default engine widgets for its main visible elements."
+    },
+    {
+      "id": "A3",
+      "agg": "mean",
+      "description": "Each cat type fires its own dedicated projectile art and the four are distinguishable from each other in both shape and colour — small round green beans, elongated white bones, round red-brown buns, round black pearls — so the player can tell which cat fired a shot in flight. Score 0 if all cats share one projectile, or if the projectiles differ only in tint of an identical shape. Score 0.5 at most if the game uses programmatic shapes, solid-color fills, or default engine widgets for its main visible elements."
+    },
+    {
+      "id": "A4",
+      "agg": "mean",
+      "description": "Animation continuity and polish: firing plays a scale-bounce on the cat, projectile impacts show a brief effect, enemy damage and the slow debuff read as transitions rather than instant state swaps, cushion slots fade in and out with placement mode, and the combo and wave-bonus announcements animate on and off. No element snaps to its new state in a single frame. Score 0 if any of these moments is instantaneous, or if transitions are absent. Score 0.5 at most if the game uses programmatic shapes, solid-color fills, or default engine widgets for its main visible elements."
+    }
+  ]
+}
