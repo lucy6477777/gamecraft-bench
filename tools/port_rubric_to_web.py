@@ -172,6 +172,14 @@ def main() -> int:
     head = re.sub(r"in\s+Godot\s+4\s+at", "in Godot 4 at", head)
     head = re.sub(r"No\s+(plain|naked)\s+Godot\s+grey", r"No \1 Godot grey", head)
     head, _ = apply_rules(head, spec["rules"] + spec.get("instruction_rules", []))
+    # Replace the Assets section wholesale: it names mount points that only
+    # exist in the Godot sandbox.
+    assets = spec.get("assets_section")
+    if assets and assets["heading"] in head:
+        before, _, rest = head.partition(assets["heading"])
+        nxt = rest.find("\n## ")
+        tail = rest[nxt:] if nxt != -1 else ""
+        head = before + assets["heading"] + "\n\n" + assets["body"].rstrip() + "\n" + tail
     contract = (REPO / "tools" / "web_contract.md").read_text()
     (args.out / "instruction.md").write_text(head.rstrip() + "\n\n" + contract)
 

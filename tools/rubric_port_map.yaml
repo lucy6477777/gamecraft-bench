@@ -123,6 +123,30 @@ instruction_rules:
     to:   "never a bare unstyled canvas"
   - from: "No plain Godot grey"
     to:   "No plain unstyled canvas"
+  # The Godot suite hands the agent a sandbox at /workspace/game and two
+  # read-only asset pools mounted beside it. The OpenGame pipeline has neither:
+  # its system prompt scaffolds into the current working directory and produces
+  # art through its own generation tools. Pointing the agent at paths that do
+  # not exist is worse than saying nothing, so both are rewritten.
+  - from: "at `/workspace/game/`"
+    to:   "in the current working directory"
+  - from: "at /workspace/game/"
+    to:   "in the current working directory"
+
+# The Assets section names Godot-suite mount points that do not exist here. It
+# is replaced wholesale rather than term-mapped, because the substitute has to
+# describe a different workflow, not a renamed one.
+assets_section:
+  heading: "## Assets"
+  body: |
+    Produce the game's art through the asset workflow you were given. Generated
+    sprites, tiles, UI and audio belong under `public/assets/`, loaded by the
+    game at runtime.
+
+    Art quality is scored from what is actually on screen. A build whose visible
+    elements are drawn in code — solid-color rectangles, untextured geometry,
+    unstyled default controls — is capped well below full credit no matter how
+    correct the mechanics are.
 
 # Terms that must not survive the port. Anything still present after the rules
 # is reported for human review rather than guessed at.
@@ -137,7 +161,7 @@ forbidden_after:
 # The build gate is not a term rename; it is a different check entirely and is
 # supplied by the porting script, not by this table.
 build_check:
-  cmd: "python3 tools/web_build_check.py --project /workspace/game"
+  cmd: "python3 tools/web_build_check.py --project ."
   description: >-
     The project builds and the built page loads under a static server: the page
     reaches the load event, a canvas element is present, and no uncaught

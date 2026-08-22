@@ -1,54 +1,49 @@
 ## Project layout
 
+Work in the current directory. It is your game's root — do not nest the project
+inside another folder. The template you copy in already establishes the layout:
+
 ```
-/workspace/game/
+./
   index.html
-  package.json
-  src/
-  public/assets/
-  dist/            ← your production build, this is what gets evaluated
-  demo_outputs/    ← your input traces (1–10 files)
+  package.json          dev / build / typecheck scripts
+  vite.config.js
+  src/                  main.ts, LevelManager.ts, gameConfig.json, scenes/, chrome/
+  public/assets/        images and audio the game loads at runtime
+  dist/                 your production build — this is what gets evaluated
+  demo_outputs/         ← your input traces (1–10 files)
 ```
+
+Follow the template and asset workflow you were given; this section only adds
+what the evaluator needs on top of it. Two things are required beyond a normal
+build:
+
+- a production build in `dist/`, and
+- one or more replayable traces in `demo_outputs/`.
 
 The build must complete and the built page must come up cleanly:
 
 ```
-cd /workspace/game && npm install && npm run build
-python3 tools/web_build_check.py --project /workspace/game
+npm run build
 ```
 
-The check serves `dist/` over a local static server and opens it in a headless
-browser. It passes when three things hold: the page reaches the `load` event, a
-`<canvas>` element is present, and no uncaught JavaScript error is raised during
-startup. Serving matters — opening `dist/index.html` over `file://` fails on
-module and asset loading and is not how the evaluator runs it.
+The evaluator then serves `dist/` over a local static server and opens it in a
+headless browser. It passes when three things hold: the page reaches the `load`
+event, a `<canvas>` element is present, and no uncaught JavaScript error is
+raised during startup. Serving matters — opening `dist/index.html` over `file://`
+fails on module and asset loading and is not how the evaluator runs it.
 
 Keep the first paint fast. Assets are decoded on the CPU here with no GPU, so a
 handful of very large images can push the page past the load timeout; a build
 that takes longer than 30 s to first paint is treated as a failed build.
 
-A screenshot helper is available at `/workspace/tools/web_screenshot.py`. Use it
-to actually see what your UI / play field / result screens look like.
-
-```
-python3 /workspace/tools/web_screenshot.py --project /workspace/game \
-      --out /workspace/frame.png --seconds 2
-```
-
-To screenshot a specific scenario, pass `--scenario <id>`:
-
-```
-python3 /workspace/tools/web_screenshot.py --project /workspace/game \
-      --out /workspace/battle_debug.png --seconds 4 --scenario battle
-```
-
 ## Demos
 
-Ship **1–10 input-trace files** under `/workspace/game/demo_outputs/`, one per
-demo, each named `*.json`. The evaluator serves a fresh copy of your build per
-trace, replays your trace as synthetic mouse and keyboard input at 1280×720,
-and records the screen. Only the first 10 traces by filename are evaluated;
-recordings longer than 20 s are sampled from a random 20 s window.
+Ship **1–10 input-trace files** under `demo_outputs/`, one per demo, each named
+`*.json`. The evaluator serves a fresh copy of your build per trace, replays
+your trace as synthetic mouse and keyboard input at 1280×720, and records the
+screen. Only the first 10 traces by filename are evaluated; recordings longer
+than 20 s are sampled from a random 20 s window.
 
 Traces are part of the deliverable, not an afterthought. A project that builds
 but ships no replayable trace produces no gameplay evidence, and every
