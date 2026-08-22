@@ -104,6 +104,26 @@ rules:
   - from: "StyleBox"
     to:   "CSS styling"
 
+# Applied to instruction.md's design half only (everything before
+# "## Project layout"; the contract half is replaced wholesale by
+# tools/web_contract.md). Measured across the suite the design half names the
+# engine in just two ways: the opening "in Godot 4 at ..." line, 140 times, and
+# "Godot grey" as an art instruction, 18 times, which the shared rules above
+# already cover.
+instruction_rules:
+  - from: "in Godot 4 at `/workspace/game/`"
+    to:   "as a Web game (HTML5 canvas / Phaser) at `/workspace/game/`"
+  - from: "in Godot 4 at /workspace/game/"
+    to:   "as a Web game (HTML5 canvas / Phaser) at /workspace/game/"
+  - from: "in Godot 4"
+    to:   "as a Web game (HTML5 canvas / Phaser)"
+  - from: "No naked Godot grey"
+    to:   "No bare unstyled canvas"
+  - from: "never naked Godot grey"
+    to:   "never a bare unstyled canvas"
+  - from: "No plain Godot grey"
+    to:   "No plain unstyled canvas"
+
 # Terms that must not survive the port. Anything still present after the rules
 # is reported for human review rather than guessed at.
 forbidden_after:

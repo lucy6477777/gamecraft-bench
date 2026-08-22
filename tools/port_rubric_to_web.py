@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import shutil
 import sys
 from pathlib import Path
 
@@ -157,6 +158,40 @@ def main() -> int:
     (args.out / "tests").mkdir(parents=True, exist_ok=True)
     (args.out / "tests" / "rubric.json").write_text(json.dumps(dst, indent=2) + "\n")
 
+    # instruction.md: keep the design half (term-mapped), replace the whole
+    # contract half with the Web contract. The split point is the heading that
+    # starts the submission contract in every task in the suite.
+    src_instr = (args.task / "instruction.md").read_text()
+    if "## Project layout" not in src_instr:
+        print("instruction.md has no '## Project layout' section", file=sys.stderr)
+        return 1
+    head = src_instr.split("## Project layout")[0]
+    # The opening sentence is hard-wrapped, so "in Godot 4 at" can straddle a
+    # newline and a plain string match misses it. Collapse the newline inside
+    # the phrase before matching; the rest of the wrapping is left alone.
+    head = re.sub(r"in\s+Godot\s+4\s+at", "in Godot 4 at", head)
+    head = re.sub(r"No\s+(plain|naked)\s+Godot\s+grey", r"No \1 Godot grey", head)
+    head, _ = apply_rules(head, spec["rules"] + spec.get("instruction_rules", []))
+    contract = (REPO / "tools" / "web_contract.md").read_text()
+    (args.out / "instruction.md").write_text(head.rstrip() + "\n\n" + contract)
+
+    instr_left = [term for term in spec["forbidden_after"] if term in head]
+    if instr_left:
+        print(f"   ! instruction.md still names: {instr_left}")
+
+    # task.toml: rename the task and drop the engine from its description.
+    toml_src = (args.task / "task.toml").read_text()
+    toml_src = toml_src.replace(f"gamecraft-bench/{name}", f"gamecraft-bench-web/{name}")
+    toml_src, _ = apply_rules(toml_src, spec.get("instruction_rules", []))
+    (args.out / "task.toml").write_text(toml_src)
+
+    # tests/test.sh and environment/ are engine-agnostic; copy verbatim.
+    shutil.copy2(args.task / "tests" / "test.sh", args.out / "tests" / "test.sh")
+    (args.out / "tests" / "test.sh").chmod(0o755)
+    env_src = args.task / "environment"
+    if env_src.is_dir():
+        shutil.copytree(env_src, args.out / "environment", dirs_exist_ok=True)
+
     review = args.out / "PORT_REVIEW.md"
     seen: set[tuple[str, str]] = set()
     lines = [f"# Rubric port review — {name}", "",
@@ -170,6 +205,7 @@ def main() -> int:
         lines += [f"- **before** {b}", f"  **after**  {a}", ""]
     review.write_text("\n".join(lines))
     print(f"wrote {args.out}/tests/rubric.json")
+    print(f"wrote {args.out}/instruction.md, task.toml, tests/test.sh")
     print(f"wrote {review}  ({len(seen)} pairs to review)")
     return 0
 
