@@ -1,0 +1,125 @@
+# Godot -> Web rubric term map
+#
+# Ports a task's rubric.json from the Godot suite to a Web/Phaser target by
+# renaming engine-specific nouns ONLY. Scoring logic is never touched: the
+# thresholds, the "Score 0 if" / "Score 1 requires" / "Score 0.5 at most if"
+# structure, the aggregation and the formula all stay exactly as authored.
+#
+# Why term-level and not sentence-level: measured over the 140-task suite there
+# are 1106 occurrences of engine terms in 61 distinct phrasings, but they are
+# built from a handful of nouns. Renaming the nouns covers ~96% and leaves the
+# rest for human review, which is cheaper and far less error-prone than
+# rewriting 61 sentence templates.
+#
+# Equivalence is the hard constraint. "default Godot widgets" means "an
+# untouched engine control dragged onto the scene" -- the Web equivalent is an
+# unstyled native HTML control, NOT "a plain-looking UI". Dropping the
+# `unstyled` qualifier would loosen the threshold and inflate scores.
+#
+# Rules are applied in order; longest/most specific first.
+
+rules:
+  # --- "Godot grey" describing a control, not the screen -------------------
+  # Must precede the generic grey rules or it becomes "...grey-canvas controls".
+  - from: "default Godot grey controls"
+    to:   "default unstyled DOM controls"
+    note: "the grey here qualifies the controls, not the background"
+
+  # --- "Godot grey": the engine's untouched default look of the whole screen
+  # Godot opens a new scene on a flat grey; a Phaser page opens on a bare
+  # canvas. The recognisable thing is 'nothing was authored here', so the
+  # replacement names that state rather than a colour.
+  - from: "plain default Godot grey"
+    to:   "a plain unstyled canvas with no background art"
+  - from: "plain Godot grey"
+    to:   "a plain unstyled canvas with no background art"
+  - from: "default Godot grey"
+    to:   "an unstyled canvas with no background art"
+  - from: "Godot grey"
+    to:   "an unstyled canvas with no background art"
+
+  # --- engine default UI controls -----------------------------------------
+  - from: "default Godot widgets"
+    to:   "default unstyled DOM controls"
+  - from: "default Godot widget"
+    to:   "default unstyled DOM control"
+  - from: "Godot widgets"
+    to:   "unstyled DOM controls"
+  - from: "Godot widget"
+    to:   "unstyled DOM control"
+  - from: "Godot controls"
+    to:   "unstyled DOM controls"
+  - from: "Godot UI"
+    to:   "unstyled default UI"
+
+  # --- "engine defaults" as a generic ---------------------------------------
+  - from: "unstyled Godot defaults"
+    to:   "unstyled engine defaults"
+  - from: "raw Godot defaults"
+    to:   "raw engine defaults"
+  - from: "Godot defaults"
+    to:   "engine defaults"
+
+  # --- drawn-in-code stand-ins ---------------------------------------------
+  # ColorRect is Godot's flat-colour rectangle node. On canvas the equivalent
+  # is a filled rectangle drawn in code, so the replacement describes the
+  # behaviour rather than borrowing a Web technology name (a Phaser game draws
+  # to canvas; it does not use <div>).
+  - from: "Godot primitives"
+    to:   "raw drawn primitives"
+  # Plural context first: inside a list of example techniques the noun must be
+  # plural to read correctly ("programmatic shapes (ColorRect, solid fills, ...)"
+  # -> "...(solid-color rectangles, solid fills, ...)"). Attributive uses such as
+  # "raw ColorRect shapes" stay singular and are handled by the last rule.
+  - from: "shapes (ColorRect,"
+    to:   "shapes (solid-color rectangles,"
+  - from: "from ColorRect,"
+    to:   "from solid-color rectangles,"
+  - from: "plain ColorRect fills"
+    to:   "plain solid-color rectangle fills"
+  - from: "ColorRects"
+    to:   "solid-color rectangles"
+  - from: "ColorRect"
+    to:   "solid-color rectangle"
+
+  # --- Godot class names ----------------------------------------------------
+  - from: "raw default Godot Label"
+    to:   "raw unstyled text"
+  - from: "Godot Label"
+    to:   "unstyled text"
+  - from: "themed Godot StyleBoxes"
+    to:   "themed CSS styling"
+  - from: "themed Godot StyleBox"
+    to:   "themed CSS styling"
+  - from: "Godot StyleBoxes"
+    to:   "CSS styling"
+  - from: "Godot StyleBox"
+    to:   "CSS styling"
+  - from: "themed StyleBoxes"
+    to:   "themed CSS styling"
+  - from: "themed StyleBox"
+    to:   "themed CSS styling"
+  - from: "StyleBoxes"
+    to:   "CSS styling"
+  - from: "StyleBox"
+    to:   "CSS styling"
+
+# Terms that must not survive the port. Anything still present after the rules
+# is reported for human review rather than guessed at.
+forbidden_after:
+  - "Godot"
+  - "ColorRect"
+  - "StyleBox"
+  - "res://"
+  - ".tscn"
+  - "GDScript"
+
+# The build gate is not a term rename; it is a different check entirely and is
+# supplied by the porting script, not by this table.
+build_check:
+  cmd: "python3 tools/web_build_check.py --project /workspace/game"
+  description: >-
+    The project builds and the built page loads under a static server: the page
+    reaches the load event, a canvas element is present, and no uncaught
+    JavaScript error is raised during startup. Returns 0 or 1; the rest of the
+    score is multiplied by this gate.
