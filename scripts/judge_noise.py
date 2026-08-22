@@ -25,7 +25,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
-from gamecraft_bench.verifier.judges import get_judge  # noqa: E402
+from gamecraft_bench.verifier.judges import JudgeError, get_judge  # noqa: E402
+from gamecraft_bench.verifier.score import _JUDGE_MAX_ATTEMPTS  # noqa: E402
 from gamecraft_bench.verifier.judges.base import (  # noqa: E402
     JudgeRequest,
     RequirementSpec,
@@ -75,20 +76,36 @@ def main() -> int:
 
     runs: list[dict[str, dict[str, float]]] = []
     errors: list[str] = []
+    attempts: list[int] = []   # calls actually spent per scored demo
     for r in range(args.runs):
         per_demo: dict[str, dict[str, float]] = {}
         for demo_id, mp4, frames in demos:
             t0 = time.time()
-            try:
-                resp = judge.score(JudgeRequest(demo_id=demo_id, video_path=mp4,
-                                                frame_paths=frames, requirements=reqs))
-                per_demo[demo_id] = dict(resp.scores)
-                print(f"  run {r + 1}  {demo_id:<22} ok    {time.time() - t0:6.1f}s")
-            except Exception as exc:  # noqa: BLE001 - report, do not mask
-                msg = f"run {r + 1} {demo_id}: {type(exc).__name__}: {exc}"
-                errors.append(msg)
-                print(f"  run {r + 1}  {demo_id:<22} FAIL  {type(exc).__name__}: "
-                      f"{str(exc)[:80]}")
+            # Retry exactly as score.py does. Measuring a single call would
+            # measure something the benchmark never does: on this endpoint a
+            # lone call succeeds well under half the time, so without the
+            # retries the "noise band" is really a failure-rate readout.
+            req = JudgeRequest(demo_id=demo_id, video_path=mp4,
+                               frame_paths=frames, requirements=reqs)
+            last: Exception | None = None
+            for attempt in range(_JUDGE_MAX_ATTEMPTS):
+                try:
+                    resp = judge.score(req)
+                    per_demo[demo_id] = dict(resp.scores)
+                    attempts.append(attempt + 1)
+                    last = None
+                    break
+                except JudgeError as exc:
+                    last = exc
+            if last is None:
+                print(f"  run {r + 1}  {demo_id:<22} ok    {time.time() - t0:6.1f}s"
+                      f"  ({attempts[-1]} call{'s' if attempts[-1] > 1 else ''})")
+            else:
+                attempts.append(_JUDGE_MAX_ATTEMPTS)
+                errors.append(f"run {r + 1} {demo_id}: "
+                              f"{type(last).__name__}: {last}")
+                print(f"  run {r + 1}  {demo_id:<22} FAIL after "
+                      f"{_JUDGE_MAX_ATTEMPTS} attempts: {str(last)[:60]}")
         runs.append(per_demo)
 
     # spread per (demo, requirement), across runs
@@ -106,7 +123,16 @@ def main() -> int:
 
     args.out.write_text(json.dumps(
         {"judge": repr(judge), "rubric": str(rubric_path), "runs": runs,
-         "per_requirement": rows, "errors": errors}, indent=1))
+         "per_requirement": rows, "errors": errors, "attempts": attempts},
+        indent=1))
+
+    if attempts:
+        one_shot = sum(1 for a in attempts if a == 1)
+        print(f"\n--- judge call cost over {len(attempts)} scored demos ---")
+        print(f"  mean calls per demo   {statistics.mean(attempts):.2f}")
+        print(f"  succeeded first try   {one_shot}/{len(attempts)}"
+              f"  ({one_shot * 100 // len(attempts)}%)")
+        print(f"  worst                 {max(attempts)} calls")
 
     if rows:
         spreads = [r["range"] for r in rows]

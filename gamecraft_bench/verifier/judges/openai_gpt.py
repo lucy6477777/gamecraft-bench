@@ -34,7 +34,13 @@ from .base import JudgeError, JudgeRequest, JudgeResponse, MultimodalJudge
 # and a 413 makes the whole demo score 0 rather than degrading gracefully.
 # Override with GAMECRAFT_BENCH_JUDGE_MAX_FRAMES; the default is unchanged.
 _MAX_FRAMES = max(1, int(os.environ.get("GAMECRAFT_BENCH_JUDGE_MAX_FRAMES") or 40))
-_MAX_TOKENS = 2048
+# Reasoning models spend this budget before emitting any visible content, so a
+# budget that merely fits the answer produces an empty string instead. Measured
+# on gpt-5.5 with a 14-requirement rubric and 8 frames: reasoning alone wants
+# 1281-2346 tokens, straddling the old 2048 ceiling -- which is why the failure
+# was intermittent (1 of 6 calls returned content) rather than total, and why
+# richer rubrics failed more often. 4096 clears it with headroom.
+_MAX_TOKENS = max(256, int(os.environ.get("GAMECRAFT_BENCH_JUDGE_MAX_TOKENS") or 4096))
 # Optional payload budget in MB for one judge request (0/unset = no budget,
 # i.e. official behaviour). See _select_frames for why bytes beat frame count.
 _MAX_BODY_BYTES = int(float(os.environ.get("GAMECRAFT_BENCH_JUDGE_MAX_BODY_MB") or 0) * 1_000_000)
