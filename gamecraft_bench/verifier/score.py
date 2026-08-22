@@ -31,6 +31,7 @@ from __future__ import annotations
 import ast
 import dataclasses
 import json
+import os
 import math
 import operator
 import random
@@ -41,7 +42,26 @@ from pathlib import Path
 
 from .judges import JudgeError, MultimodalJudge, get_judge
 from .judges.base import JudgeRequest, RequirementSpec
-from .replay import ReplayError, replay_trace
+from .replay import ReplayError
+
+
+def _resolve_replay(engine: str | None = None):
+    """Pick the replay backend. Godot unless asked otherwise.
+
+    replay_web.py already matches replay.py's signature, return type and error
+    type, and everything downstream -- frame sampling, the judge, aggregation,
+    the formula -- is engine-agnostic. The only thing missing was something
+    that would actually select it, so a Web task silently replayed through the
+    Godot path and produced nothing to judge.
+    """
+    name = (engine or os.environ.get("GAMECRAFT_BENCH_REPLAY") or "godot").strip().lower()
+    if name in ("godot", "", "default"):
+        from .replay import replay_trace as fn  # noqa: PLC0415
+        return fn, "godot"
+    if name in ("web", "phaser", "browser"):
+        from .replay_web import replay_trace as fn  # noqa: PLC0415
+        return fn, "web"
+    raise ValueError(f"unknown replay backend {name!r}; expected 'godot' or 'web'")
 
 _JUDGE_MAX_ATTEMPTS = 5
 
@@ -81,6 +101,7 @@ class ScoreResult:
     judge_model: str
     errors: list[str]                            # non-fatal (one per failed pair)
     unjudged_demos: list[str] = dataclasses.field(default_factory=list)
+    replay_engine: str = "godot"
 
 
 def score_project(
@@ -95,6 +116,7 @@ def score_project(
     frame_interval_seconds: float = 0.5,
     max_demo_seconds: float | None = None,
     max_demos: int | None = None,
+    replay_engine: str | None = None,
 ) -> ScoreResult:
     """Score one Godot project. See module docstring for the pipeline."""
     project_dir = Path(project_dir).resolve()
@@ -116,6 +138,7 @@ def score_project(
 
     judge = judge or get_judge()
     errors: list[str] = []
+    replay_trace, replay_engine_name = _resolve_replay(replay_engine)
     unjudged_demos: list[str] = []
 
     # 1. Build check.
@@ -300,6 +323,7 @@ def score_project(
         judge_model=judge.model,
         errors=errors,
         unjudged_demos=unjudged_demos,
+        replay_engine=replay_engine_name,
     )
 
     _write_artifacts(output_dir, result, judge_log, variables)
@@ -436,6 +460,10 @@ def _write_artifacts(
         "formula": result.formula,
         "build_ok": result.build_ok,
         "judge": {"name": result.judge_name, "model": result.judge_model},
+        # Which engine produced the frames. Without it a Web score and a
+        # Godot score are indistinguishable in the artifact, and the two
+        # are not comparable.
+        "replay_engine": result.replay_engine,
         "variables": variables,
         "requirements": [
             {

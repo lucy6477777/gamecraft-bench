@@ -20,6 +20,8 @@ that gate on user-agent (e.g. tokenrun) get unblocked.
 from __future__ import annotations
 
 import base64
+import functools
+import io
 import json
 import os
 from pathlib import Path
@@ -78,16 +80,60 @@ def _parse_sse_to_text(raw: str) -> str:
     return "".join(parts)
 
 
+# Frames go out as JPEG by default. PNG size tracks art style rather than
+# information: measured at an identical 854x480, a Phaser build with a painted
+# background averaged 450 KB per frame against 225 KB for a Godot build, so the
+# same byte budget bought 4 frames for one engine and 36 for the other -- and
+# 4 frames of a 17-second recording is its title screen, which is exactly what
+# the judge reported seeing. Re-encoded to JPEG q85 both average 55 KB, so the
+# budget buys the same ~40 frames either way and the comparison stops depending
+# on how the game is drawn. Set GAMECRAFT_BENCH_JUDGE_FRAME_FORMAT=png to send
+# the original bytes.
+_FRAME_FORMAT = (os.environ.get("GAMECRAFT_BENCH_JUDGE_FRAME_FORMAT") or "jpeg").strip().lower()
+_FRAME_QUALITY = max(1, min(95, int(os.environ.get("GAMECRAFT_BENCH_JUDGE_FRAME_QUALITY") or 85)))
+
+
+@functools.lru_cache(maxsize=512)
+def _encoded_frame(path: Path) -> tuple[bytes, str]:
+    """Bytes actually sent for one frame, plus its mime subtype."""
+    raw = path.read_bytes()
+    if _FRAME_FORMAT == "png":
+        return raw, "png"
+    try:
+        from PIL import Image  # noqa: PLC0415
+    except ImportError:
+        return raw, path.suffix.lstrip(".").lower() or "png"
+    buf = io.BytesIO()
+    with Image.open(path) as im:
+        im.convert("RGB").save(buf, "JPEG", quality=_FRAME_QUALITY, optimize=True)
+    return buf.getvalue(), "jpeg"
+
+
 def _data_uri(path: Path) -> str:
-    b64 = base64.standard_b64encode(path.read_bytes()).decode("ascii")
-    return f"data:image/png;base64,{b64}"
+    payload, kind = _encoded_frame(path)
+    b64 = base64.standard_b64encode(payload).decode("ascii")
+    return f"data:image/{kind};base64,{b64}"
 
 
 def _evenly_spaced(frames: list[Path], n: int) -> list[Path]:
+    """n frames spanning the whole list, always including first and last.
+
+    The obvious `int(i * len/n)` is only approximately even, and it degenerates
+    badly when n approaches len(frames): at n = len-1 the step is 1.03, int()
+    truncates every index to i, and the result is the first n frames rather
+    than a spread. Iterating that to shrink a payload took a 17-second
+    recording down to its first four frames -- the title screen -- and the
+    judge then correctly reported that it had been shown nothing but a title
+    screen. Anchoring on len-1 / n-1 keeps the span exact at every n.
+    """
+    if n <= 0:
+        return []
     if len(frames) <= n:
         return list(frames)
-    step = len(frames) / float(n)
-    return [frames[min(int(i * step), len(frames) - 1)] for i in range(n)]
+    if n == 1:
+        return [frames[len(frames) // 2]]      # a middle frame beats frame 0
+    last = len(frames) - 1
+    return [frames[round(i * last / (n - 1))] for i in range(n)]
 
 
 def _select_frames(frames: list[Path]) -> list[Path]:
@@ -106,7 +152,9 @@ def _select_frames(frames: list[Path]) -> list[Path]:
         return picked
     # base64 inflates by 4/3; leave the remainder for prompt + JSON overhead.
     def encoded(sel: list[Path]) -> int:
-        return int(sum(f.stat().st_size for f in sel) * 4 / 3)
+        # Measure the bytes that actually go on the wire. Using the on-disk
+        # PNG size here would budget for a payload we are not sending.
+        return int(sum(len(_encoded_frame(f)[0]) for f in sel) * 4 / 3)
     while len(picked) > 1 and encoded(picked) > _MAX_BODY_BYTES:
         picked = _evenly_spaced(picked, len(picked) - 1)
     return picked

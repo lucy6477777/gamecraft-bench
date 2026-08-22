@@ -68,6 +68,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--max-demos", type=int, default=None,
                         help="Cap on the number of traces processed per project. "
                              "Defaults to the rubric's max_demos, falling back to 10.")
+    parser.add_argument("--replay-engine", default=None,
+                        choices=["godot", "web"],
+                        help="replay backend; defaults to GAMECRAFT_BENCH_REPLAY "
+                             "or godot")
     parser.add_argument("--pass-threshold", type=float, default=0.5,
                         help="Reward >= threshold => exit 0 (default: 0.5).")
     args = parser.parse_args(argv)
@@ -84,6 +88,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[verifier] godot_bin = {cfg.GODOT_BIN}", flush=True)
 
     result = score_project(
+        replay_engine=args.replay_engine,
         project_dir=args.project,
         rubric_path=args.rubric,
         output_dir=args.output,

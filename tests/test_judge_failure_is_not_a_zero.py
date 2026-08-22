@@ -53,7 +53,8 @@ def _setup(tmp: Path, n_demos: int) -> tuple[Path, Path, Path]:
     out = tmp / "out"; out.mkdir()
 
     S._run_build_check = lambda spec, od: (True, "stub build ok")
-    S.replay_trace = lambda **kw: type("R", (), {"duration_seconds": 5.0})()
+    S._resolve_replay = lambda engine=None: (
+        lambda **kw: type("R", (), {"duration_seconds": 5.0})(), "stub")
     S._sample_frames = lambda mp4, d, **kw: [Path("frame.png")]
     return project, rubric, out
 
