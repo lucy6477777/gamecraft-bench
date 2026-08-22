@@ -115,7 +115,8 @@ async def _read_canvas_mapping(page, game_w: int, game_h: int) -> _Mapping:
 
 async def _run(url: str, trace: dict, out_dir: Path, *, viewport: tuple[int, int],
                record_size: tuple[int, int], fps: int,
-               settle_seconds: float, max_replay_seconds: float) -> dict:
+               settle_seconds: float, max_replay_seconds: float,
+               ready_timeout: float) -> dict:
     from playwright.async_api import async_playwright  # noqa: PLC0415
 
     events = sorted(trace.get("events") or [], key=lambda e: e.get("frame", 0))
@@ -130,6 +131,12 @@ async def _run(url: str, trace: dict, out_dir: Path, *, viewport: tuple[int, int
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(args=["--disable-gpu", "--no-sandbox"])
+        # Recording begins with the context, which is before navigation, asset
+        # loading and settle. Downstream sampling draws its window from t=0 for
+        # the *trace's* duration, so that lead-in both wastes frames on a
+        # loading screen and truncates an equal slice off the end of actual
+        # play. Remember where the trace really starts and cut it off below.
+        t_recording_start = time.monotonic()
         ctx = await browser.new_context(
             viewport={"width": viewport[0], "height": viewport[1]},
             record_video_dir=str(vid_dir),
@@ -141,6 +148,17 @@ async def _run(url: str, trace: dict, out_dir: Path, *, viewport: tuple[int, int
             await page.goto(url, wait_until="load", timeout=30_000)
         except Exception as exc:  # noqa: BLE001
             errors.append(f"navigation: {type(exc).__name__}: {str(exc)[:160]}")
+        # `load` fires before a Phaser game has its assets. These builds pull
+        # a dozen generated images afterwards, and a fixed 1.5s settle put the
+        # first keypresses on a "Loading..." progress bar: measured on the
+        # sokoban demo, seven key presses produced no movement and the judge
+        # correctly reported that no movement was demonstrated. Wait for the
+        # asset requests to actually finish, then settle.
+        try:
+            await page.wait_for_load_state("networkidle", timeout=int(ready_timeout * 1000))
+        except Exception:  # noqa: BLE001
+            errors.append(f"assets still loading after {ready_timeout:.0f}s; "
+                          f"replaying anyway")
         await page.wait_for_timeout(int(settle_seconds * 1000))
 
         mapping = await _read_canvas_mapping(page, viewport[0], viewport[1])
@@ -194,13 +212,15 @@ async def _run(url: str, trace: dict, out_dir: Path, *, viewport: tuple[int, int
         await browser.close()
 
     return {"webm": webm, "duration_seconds": duration_frames / float(fps),
+            "lead_in_seconds": max(0.0, start - t_recording_start),
             "errors": errors}
 
 
-def _to_mp4(webm: Path, mp4: Path) -> None:
+def _to_mp4(webm: Path, mp4: Path, *, skip_seconds: float = 0.0) -> None:
     mp4.parent.mkdir(parents=True, exist_ok=True)
+    seek = ["-ss", f"{skip_seconds:.3f}"] if skip_seconds > 0.05 else []
     proc = subprocess.run(
-        ["ffmpeg", "-y", "-loglevel", "error", "-i", str(webm),
+        ["ffmpeg", "-y", "-loglevel", "error", *seek, "-i", str(webm),
          "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", str(mp4)],
         capture_output=True, text=True)
     if proc.returncode != 0 or not mp4.is_file():
@@ -218,6 +238,7 @@ def replay_trace(
     fps: int = 30,
     dist_subdir: str = "dist",
     settle_seconds: float = 1.5,
+    ready_timeout: float = 20.0,
     log_dir: Path | None = None,
     max_replay_seconds: float = 90.0,
 ) -> ReplayResult:
@@ -246,7 +267,8 @@ def replay_trace(
                 url, trace, out_dir, viewport=viewport,
                 record_size=tuple(record_size or viewport), fps=fps,
                 settle_seconds=settle_seconds,
-                max_replay_seconds=max_replay_seconds))
+                max_replay_seconds=max_replay_seconds,
+                ready_timeout=ready_timeout))
         except ReplayError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -255,7 +277,8 @@ def replay_trace(
 
     if not res["webm"] or not Path(res["webm"]).is_file():
         raise ReplayError("browser produced no recording")
-    _to_mp4(Path(res["webm"]), output_mp4)
+    _to_mp4(Path(res["webm"]), output_mp4,
+            skip_seconds=res.get("lead_in_seconds", 0.0))
     shutil.rmtree(out_dir / "_video", ignore_errors=True)
 
     if log_dir is not None:
@@ -263,6 +286,7 @@ def replay_trace(
         (log_dir / "replay_web.json").write_text(json.dumps(
             {"url": url, "scenario": scenario, "fps": fps,
              "duration_seconds": res["duration_seconds"],
+             "lead_in_seconds": round(res.get("lead_in_seconds", 0.0), 2),
              "n_events": len(trace.get("events") or []),
              "errors": res["errors"]}, indent=1))
 
