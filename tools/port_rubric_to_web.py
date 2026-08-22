@@ -166,11 +166,17 @@ def main() -> int:
         print("instruction.md has no '## Project layout' section", file=sys.stderr)
         return 1
     head = src_instr.split("## Project layout")[0]
-    # The opening sentence is hard-wrapped, so "in Godot 4 at" can straddle a
-    # newline and a plain string match misses it. Collapse the newline inside
-    # the phrase before matching; the rest of the wrapping is left alone.
-    head = re.sub(r"in\s+Godot\s+4\s+at", "in Godot 4 at", head)
-    head = re.sub(r"No\s+(plain|naked)\s+Godot\s+grey", r"No \1 Godot grey", head)
+    # The opening sentence is hard-wrapped, so any phrase the rules match on can
+    # straddle a newline and a plain string match slips past it. Rather than
+    # patching one phrase at a time -- which already missed twice -- normalise
+    # whitespace inside every phrase the rules look for, derived from the rules
+    # themselves so a new rule is covered automatically.
+    for rule in spec["rules"] + spec.get("instruction_rules", []):
+        src = rule["from"]
+        if " " not in src:
+            continue
+        pattern = r"\s+".join(re.escape(tok) for tok in src.split())
+        head = re.sub(pattern, src, head)
     head, _ = apply_rules(head, spec["rules"] + spec.get("instruction_rules", []))
     # Replace the Assets section wholesale: it names mount points that only
     # exist in the Godot sandbox.
