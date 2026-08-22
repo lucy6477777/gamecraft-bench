@@ -24,10 +24,21 @@ from pathlib import Path
 
 
 def _verifier_dirs(root: Path):
+    """Every directory under root that holds a breakdown.json.
+
+    Not just harbor's `<trial>/verifier/` layout: scores produced by invoking
+    the verifier directly land one level down, and a checker that silently
+    finds nothing is worse than one that errors -- it reads as "all clean".
+    """
     if (root / "breakdown.json").is_file():
         yield root
         return
-    yield from (p.parent for p in sorted(root.rglob("verifier/breakdown.json")))
+    seen: set[Path] = set()
+    for f in sorted(root.rglob("breakdown.json")):
+        d = f.parent
+        if d not in seen:
+            seen.add(d)
+            yield d
 
 
 def inspect(vd: Path) -> dict:
