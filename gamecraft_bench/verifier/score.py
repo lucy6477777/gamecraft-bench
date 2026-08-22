@@ -80,6 +80,7 @@ class ScoreResult:
     judge_name: str
     judge_model: str
     errors: list[str]                            # non-fatal (one per failed pair)
+    unjudged_demos: list[str] = dataclasses.field(default_factory=list)
 
 
 def score_project(
@@ -115,6 +116,7 @@ def score_project(
 
     judge = judge or get_judge()
     errors: list[str] = []
+    unjudged_demos: list[str] = []
 
     # 1. Build check.
     build_ok, build_log = _run_build_check(build_spec, output_dir)
@@ -225,6 +227,27 @@ def score_project(
                 errors.append(f"judge failed on {art.demo_id}: {last_exc}")
             latency_s = time.time() - t0
 
+            if hard_failure:
+                # The judge never answered for this demo. Do NOT write zeros.
+                # A zero here is indistinguishable from "the game does not do
+                # this" and propagates into max/mean as if it were an
+                # observation, so an API failure reads as a bad game. Measured
+                # on this repo: one artifact scored 0.000 with four failed
+                # calls and 0.481 when the same bytes were judged again.
+                # Dropping the demo keeps the aggregate honest about what was
+                # actually seen; `unjudged_demos` carries the fact upward.
+                unjudged_demos.append(art.demo_id)
+                judge_log.append({
+                    "demo_id": art.demo_id,
+                    "requirement_id": None,
+                    "score": None,
+                    "rationale": "",
+                    "raw": "",
+                    "error": str(last_exc),
+                    "latency_seconds": round(latency_s, 3),
+                })
+                continue
+
             for r in requirements:
                 rid = r["id"]
                 raw_score = resp_scores.get(rid, 0.0)
@@ -232,11 +255,10 @@ def score_project(
                     score = float(raw_score)
                 except (TypeError, ValueError):
                     score = 0.0
-                    if not hard_failure:
-                        errors.append(
-                            f"judge returned non-numeric score for "
-                            f"{art.demo_id}/{rid}: {raw_score!r}"
-                        )
+                    errors.append(
+                        f"judge returned non-numeric score for "
+                        f"{art.demo_id}/{rid}: {raw_score!r}"
+                    )
                 score = max(0.0, min(1.0, score))
 
                 judge_log.append({
@@ -277,6 +299,7 @@ def score_project(
         judge_name=type(judge).__name__,
         judge_model=judge.model,
         errors=errors,
+        unjudged_demos=unjudged_demos,
     )
 
     _write_artifacts(output_dir, result, judge_log, variables)
@@ -436,6 +459,37 @@ def _write_artifacts(
         ],
         "errors": result.errors,
     }
+
+    # How much of the evidence actually reached the judge. Without this the
+    # reward is unfalsifiable: a low score could mean a weak game or a judge
+    # that never answered, and the two look identical in reward.txt.
+    total = len(result.demos)
+    judged = total - len(result.unjudged_demos)
+    breakdown["judge_coverage"] = {
+        "demos_total": total,
+        "demos_judged": judged,
+        "demos_unjudged": list(result.unjudged_demos),
+        "complete": not result.unjudged_demos,
+    }
+    for entry, r in zip(breakdown["requirements"], result.requirements, strict=True):
+        entry["demos_contributing"] = len(r.per_demo)
+
+    # A sentinel, because reward.txt can only carry a number and the task
+    # wrapper rewrites a missing one to 0. Anything aggregating a sweep should
+    # refuse a trial that has this file rather than trust its reward.
+    sentinel = output_dir / "JUDGE_INCOMPLETE.json"
+    if result.unjudged_demos:
+        sentinel.write_text(json.dumps({
+            "reason": "the judge returned no scores for one or more demos",
+            "demos_total": total,
+            "demos_judged": judged,
+            "demos_unjudged": list(result.unjudged_demos),
+            "reward_is_unreliable": True,
+            "errors": [e for e in result.errors if e.startswith("judge failed")],
+        }, indent=1))
+    elif sentinel.exists():
+        sentinel.unlink()
+
     (output_dir / "breakdown.json").write_text(
         json.dumps(breakdown, indent=2, sort_keys=False)
     )

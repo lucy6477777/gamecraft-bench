@@ -35,12 +35,24 @@ from .base import JudgeError, JudgeRequest, JudgeResponse, MultimodalJudge
 # Override with GAMECRAFT_BENCH_JUDGE_MAX_FRAMES; the default is unchanged.
 _MAX_FRAMES = max(1, int(os.environ.get("GAMECRAFT_BENCH_JUDGE_MAX_FRAMES") or 40))
 # Reasoning models spend this budget before emitting any visible content, so a
-# budget that merely fits the answer produces an empty string instead. Measured
-# on gpt-5.5 with a 14-requirement rubric and 8 frames: reasoning alone wants
-# 1281-2346 tokens, straddling the old 2048 ceiling -- which is why the failure
-# was intermittent (1 of 6 calls returned content) rather than total, and why
-# richer rubrics failed more often. 4096 clears it with headroom.
-_MAX_TOKENS = max(256, int(os.environ.get("GAMECRAFT_BENCH_JUDGE_MAX_TOKENS") or 4096))
+# budget that merely fits the answer returns an empty string instead, and an
+# empty response is a failed call.
+#
+# Measured on gpt-5.5, 24 calls over two rubrics with real frames, given an
+# unreachable ceiling so the numbers are demand rather than truncation:
+#
+#     total completion tokens   min 1149   median ~1900   max 2974
+#     the official 2048 budget truncates 7 of 18 resampled calls (38%)
+#
+# Demand does NOT scale with rubric size -- a 14-requirement rubric had the
+# heavier median (2211) than a 20-requirement one (1630), and the spread within
+# a single rubric (1595-2974) exceeds the spread between rubrics. So 2048 is
+# not "too small for hard tasks", it sits inside the ordinary run-to-run
+# distribution, which is why the failure looked random.
+#
+# 4096 covered every sample but only 1.38x the observed max, and the ceiling
+# is not a charge -- unused budget costs nothing. 8192 buys 2.75x for free.
+_MAX_TOKENS = max(256, int(os.environ.get("GAMECRAFT_BENCH_JUDGE_MAX_TOKENS") or 8192))
 # Optional payload budget in MB for one judge request (0/unset = no budget,
 # i.e. official behaviour). See _select_frames for why bytes beat frame count.
 _MAX_BODY_BYTES = int(float(os.environ.get("GAMECRAFT_BENCH_JUDGE_MAX_BODY_MB") or 0) * 1_000_000)
