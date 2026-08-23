@@ -10,6 +10,22 @@ Three conditions, all required:
   2. a <canvas> element exists and has non-zero size,
   3. no uncaught JavaScript error is raised during startup.
 
+A fourth signal is measured and always reported, but only fails the gate in
+one unambiguous case. Startup is not the only place a game can be dead: a
+generated roguelike passed all three conditions above -- clean load, canvas
+present, zero JS errors even at a 12s settle -- and then threw
+`Cannot read properties of undefined (reading '2')` the instant the player
+clicked, leaving a pure black canvas. It scored 0.094, but the judge reached
+that number by describing frozen loading screens, so an outright crash was
+recorded as if it were poor game quality.
+
+So the probe clicks once and watches. `interaction_error` and
+`canvas_froze` are reported either way. The gate fails only when BOTH hold:
+an uncaught error was raised AND the canvas stopped changing afterwards. One
+alone is not enough -- a turn-based game legitimately renders a still frame
+while it waits for input, and a game can log an error and keep playing. Set
+GAMECRAFT_BENCH_WEB_GATE_INTERACTION=0 to report without ever failing.
+
 Serving matters: `file://` breaks module and asset loading, so the page is
 served over a local static server exactly as the evaluator serves it.
 
@@ -24,6 +40,7 @@ import argparse
 import asyncio
 import contextlib
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -90,6 +107,20 @@ async def _probe(url: str, timeout_s: float, settle_s: float) -> dict:
             if info and info["w"] > 0 and info["h"] > 0:
                 result["canvas"] = True
                 result["canvas_size"] = [info["w"], info["h"]]
+
+            if result["canvas"]:
+                startup_errors = len(result["errors"])
+                shot_a = await page.screenshot()
+                await page.mouse.click(info["w"] // 2, info["h"] // 2)
+                await page.wait_for_timeout(1500)
+                shot_b = await page.screenshot()
+                await page.wait_for_timeout(1200)
+                shot_c = await page.screenshot()
+                result["interaction_error"] = len(result["errors"]) > startup_errors
+                # Frozen means nothing moved across two intervals after the
+                # click -- not merely that the click changed nothing.
+                result["canvas_froze"] = (shot_b == shot_c)
+                result["canvas_changed_on_click"] = (shot_a != shot_b)
         await browser.close()
     return result
 
@@ -122,14 +153,24 @@ def main() -> int:
                 probe = {"loaded": False, "canvas": False,
                          "errors": [f"probe failed: {type(exc).__name__}: {exc}"]}
         report.update(probe)
-        report["pass"] = bool(probe.get("loaded") and probe.get("canvas")
-                              and not probe.get("errors"))
+        base_ok = bool(probe.get("loaded") and probe.get("canvas")
+                       and not probe.get("errors"))
+        # Dead-on-first-input: an uncaught error AND a canvas that then stops
+        # updating. Requiring both keeps a still-but-alive game passing.
+        dead = bool(probe.get("interaction_error") and probe.get("canvas_froze"))
+        report["dead_on_interaction"] = dead
+        gate_on = (os.environ.get("GAMECRAFT_BENCH_WEB_GATE_INTERACTION") or "1") != "0"
+        report["pass"] = base_ok and not (dead and gate_on)
 
     for line in (f"  loaded        {report.get('loaded')}"
                  f"  ({report.get('load_seconds')}s)",
                  f"  canvas        {report.get('canvas')}"
                  f"  {report.get('canvas_size') or ''}",
-                 f"  js errors     {len(report.get('errors') or [])}"):
+                 f"  js errors     {len(report.get('errors') or [])}",
+                 f"  on click      changed={report.get('canvas_changed_on_click')}"
+                 f"  error={report.get('interaction_error')}"
+                 f"  froze={report.get('canvas_froze')}",
+                 f"  dead on input {report.get('dead_on_interaction')}"):
         print(line)
     for err in (report.get("errors") or [])[:5]:
         print(f"    ! {err}")
