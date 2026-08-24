@@ -161,7 +161,7 @@ forbidden_after:
 # The build gate is not a term rename; it is a different check entirely and is
 # supplied by the porting script, not by this table.
 build_check:
-  cmd: "python3 tools/web_build_check.py --project ."
+  cmd: 'python3 tools/web_build_check.py --project "${GAME_PROJECT_PATH:-.}"'
   description: >-
     The project builds and the built page loads under a static server: the page
     reaches the load event, a canvas element is present, and no uncaught

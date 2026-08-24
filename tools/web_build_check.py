@@ -29,8 +29,16 @@ GAMECRAFT_BENCH_WEB_GATE_INTERACTION=0 to report without ever failing.
 Serving matters: `file://` breaks module and asset loading, so the page is
 served over a local static server exactly as the evaluator serves it.
 
-Prints 1 (pass) or 0 (fail) on the last line and exits 0 either way, so a
-failing build is a score of zero rather than a crashed verifier.
+Prints 1 (pass) or 0 (fail) on the last line AND exits with that verdict: 0 on
+pass, 1 on fail.
+
+The exit code is what score.py reads -- `build_ok = proc.returncode == 0`, the
+same contract Godot's `godot --headless --path ... --quit-after 5` satisfies.
+An earlier version of this file exited 0 unconditionally so that a failing
+build would score zero instead of crashing the verifier. It achieved the
+opposite: BUILD was True for every Web task ever scored, and the multiplicative
+gate never once fired. Measured on 19 runs whose project had no dist/ at all,
+every one reported build_ok=True.
 
     python3 tools/web_build_check.py --project /workspace/game
 """
@@ -178,7 +186,7 @@ def main() -> int:
     if args.json_out:
         args.json_out.write_text(json.dumps(report, indent=1))
     print(1 if report["pass"] else 0)
-    return 0
+    return 0 if report["pass"] else 1
 
 
 if __name__ == "__main__":

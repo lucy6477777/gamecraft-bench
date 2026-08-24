@@ -4,7 +4,7 @@
   "max_demo_seconds": 20,
   "build_check": {
     "id": "BUILD",
-    "cmd": "python3 tools/web_build_check.py --project .",
+    "cmd": "python3 tools/web_build_check.py --project \"${GAME_PROJECT_PATH:-.}\"",
     "description": "The project builds and the built page loads under a static server: the page reaches the load event, a canvas element is present, and no uncaught JavaScript error is raised during startup. Returns 0 or 1; the rest of the score is multiplied by this gate."
   },
   "categories": [

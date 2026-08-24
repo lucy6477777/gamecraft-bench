@@ -142,7 +142,7 @@ def score_project(
     unjudged_demos: list[str] = []
 
     # 1. Build check.
-    build_ok, build_log = _run_build_check(build_spec, output_dir)
+    build_ok, build_log = _run_build_check(build_spec, output_dir, project_dir)
 
     # Default per-requirement = 0; populated by judge if BUILD passes.
     # Per-requirement `agg` controls how the demo scores are folded into a
@@ -364,14 +364,27 @@ def _aggregate(agg: str, per_demo: dict[str, float]) -> float:
     return max(vals)
 
 
-def _run_build_check(spec: dict, output_dir: Path) -> tuple[bool, str]:
-    """Run the build smoke command in a shell. Captures combined output."""
+def _run_build_check(spec: dict, output_dir: Path,
+                     project_dir: Path | None = None) -> tuple[bool, str]:
+    """Run the build smoke command in a shell. Captures combined output.
+
+    The Godot suite can hardcode `--path /workspace/game` because the sandbox
+    always mounts the project there. Nothing mounts anything on the Web path --
+    the verifier is handed a directory -- so the command has no way to know
+    where the game is unless it is told. GAME_PROJECT_PATH is the name the
+    Godot task wrapper already uses for exactly this, so the two paths name it
+    the same thing.
+    """
     cmd = spec["cmd"]
     timeout = float(spec.get("timeout_seconds", 60))
     log_path = output_dir / "build.log"
+    env = dict(os.environ)
+    if project_dir is not None:
+        env["GAME_PROJECT_PATH"] = str(project_dir)
     try:
         proc = subprocess.run(
             cmd, shell=True, capture_output=True, text=True, timeout=timeout,
+            env=env,
         )
         out = (proc.stdout or "") + (proc.stderr or "")
         log_path.write_text(out)
