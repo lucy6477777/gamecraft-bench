@@ -118,6 +118,7 @@ async def _probe(url: str, timeout_s: float, settle_s: float) -> dict:
 
             if result["canvas"]:
                 startup_errors = len(result["errors"])
+                result["startup_error_count"] = startup_errors
                 shot_a = await page.screenshot()
                 await page.mouse.click(info["w"] // 2, info["h"] // 2)
                 await page.wait_for_timeout(1500)
@@ -161,8 +162,15 @@ def main() -> int:
                 probe = {"loaded": False, "canvas": False,
                          "errors": [f"probe failed: {type(exc).__name__}: {exc}"]}
         report.update(probe)
+        # Only startup-phase errors gate here. Errors raised by the interaction
+        # probe are judged by the dead-on-input rule below (error AND froze) --
+        # counting them in base_ok made any click-time error fatal on its own,
+        # which is exactly what the docstring promises not to do.
+        n_startup = probe.get("startup_error_count")
+        if n_startup is None:
+            n_startup = len(probe.get("errors") or [])
         base_ok = bool(probe.get("loaded") and probe.get("canvas")
-                       and not probe.get("errors"))
+                       and n_startup == 0)
         # Dead-on-first-input: an uncaught error AND a canvas that then stops
         # updating. Requiring both keeps a still-but-alive game passing.
         dead = bool(probe.get("interaction_error") and probe.get("canvas_froze"))

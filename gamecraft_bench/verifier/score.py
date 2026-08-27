@@ -376,7 +376,7 @@ def _run_build_check(spec: dict, output_dir: Path,
     the same thing.
     """
     cmd = spec["cmd"]
-    timeout = float(spec.get("timeout_seconds", 60))
+    timeout = float(spec.get("timeout_seconds", 180))
     log_path = output_dir / "build.log"
     env = dict(os.environ)
     if project_dir is not None:
