@@ -74,6 +74,12 @@ def main() -> int:
     done = sum(1 for v in best.values() if v[0] == "done")
     replay = sum(1 for v in best.values() if v[0] == "needs_replay")
     retry = sum(1 for v in best.values() if v[0] == "retry")
+    # Only an outside kill counts toward the mass-kill alarm. CancelledError is
+    # always our own hand -- stopping a round to change something raised retry
+    # by twelve and rang the alarm, and an alarm that cries wolf for our own
+    # deliberate actions is one we will learn to ignore before it matters.
+    killed = sum(1 for v in best.values()
+                 if v[0] == "retry" and v[1] == "NonZeroAgentExitCodeError")
     total = len(all_tasks())
     spend, left = credits()
     n = agents()
@@ -84,9 +90,10 @@ def main() -> int:
     if n == 0 and prev.get("agents", 1) > 0:
         out.append(f"轮次结束: done={done} 需补回放={replay} 需重跑={retry} / {total}"
                    f" — 该起下一轮了")
-    # The killer coming back looks like a step change in infra failures.
-    if retry - prev.get("retry", retry) >= 4:
-        out.append(f"批量猝死: retry {prev.get('retry')} -> {retry}（外部又在杀进程）")
+    # The killer coming back looks like a step change in outside kills.
+    if killed - prev.get("killed", killed) >= 4:
+        out.append(f"批量猝死: 被外部杀 {prev.get('killed')} -> {killed}"
+                   f"（CancelledError 不计，那是我们自己停的）")
     # Paying without finishing anything.
     if spend and prev.get("spend"):
         burn = spend - prev["spend"]
@@ -111,10 +118,12 @@ def main() -> int:
         print(line, flush=True)
     if not out and tick % 2 == 0:
         bal = f"${left:.0f}" if left is not None else "?"
-        print(f"进度 done={done} 补回放={replay} 重跑={retry} / {total} | 在飞 {n} | 余额 {bal}",
+        print(f"进度 done={done} 补回放={replay} 重跑={retry}"
+              f"(其中外部杀 {killed}) / {total} | 在飞 {n} | 余额 {bal}",
               flush=True)
 
     STATE.write_text(json.dumps({"tick": tick, "done": done, "retry": retry,
+                                 "killed": killed,
                                  "spend": spend, "left": left, "agents": n,
                                  "quiet": len(quiet), "at": time.time()}))
     return 0
