@@ -284,8 +284,15 @@ class LocalCodex(Codex):
     """Codex that trusts a pre-installed ``codex`` CLI on PATH and retries
     the agent invocation on upstream 5xx errors."""
 
-    MAX_RETRIES = 3
-    RETRY_BACKOFF_SEC = 60
+    # Two different budgets, because two different things go wrong. A 5xx is
+    # the provider failing and deserves a few tries. Being SIGKILLed is nothing
+    # to do with this run at all -- on 2026-08-28 all twelve agents of a round
+    # were killed twice within the first 40 minutes -- and spending the same
+    # small budget on it means a healthy trial dies for someone else's cleanup.
+    MAX_RETRIES = 4              # upstream 5xx
+    MAX_SIGNAL_RESUMES = 8       # killed from outside; resumes, does not restart
+    RETRY_BACKOFF_SEC = 30       # doubles per attempt, capped below
+    MAX_BACKOFF_SEC = 300
 
     @staticmethod
     def name() -> str:
@@ -305,15 +312,23 @@ class LocalCodex(Codex):
         self, instruction: str, environment: BaseEnvironment, context: AgentContext
     ) -> None:
         last_exc: NonZeroAgentExitCodeError | None = None
-        for attempt in range(self.MAX_RETRIES):
+        api_tries = 0            # attempts spent on upstream 5xx
+        signal_tries = 0         # attempts spent being killed from outside
+        attempt = 0
+        while True:
             if attempt > 0:
+                # Exponential, capped: a provider having a bad minute should not
+                # be hammered, and a killer that fires every few minutes should
+                # not be raced.
+                backoff = min(self.RETRY_BACKOFF_SEC * 2 ** (attempt - 1),
+                              self.MAX_BACKOFF_SEC)
                 self.logger.info(
-                    "Retrying codex (attempt %d/%d) after backoff %ds",
-                    attempt + 1,
-                    self.MAX_RETRIES,
-                    self.RETRY_BACKOFF_SEC,
+                    "Retrying codex (5xx %d/%d, signal %d/%d) after backoff %ds",
+                    api_tries, self.MAX_RETRIES,
+                    signal_tries, self.MAX_SIGNAL_RESUMES, backoff,
                 )
-                await asyncio.sleep(self.RETRY_BACKOFF_SEC)
+                await asyncio.sleep(backoff)
+            attempt += 1
             try:
                 await Codex.run(self, instruction, environment, context)
                 return
@@ -334,23 +349,29 @@ class LocalCodex(Codex):
                 # conversation up instead of paying for the same tokens twice.
                 signal_num = self._exit_signal(exc)
                 if signal_num is not None:
+                    signal_tries += 1
                     self.logger.warning(
                         "codex was killed by signal %d (not its own failure); "
-                        "resuming on attempt %d/%d",
-                        signal_num, attempt + 2, self.MAX_RETRIES,
+                        "resuming (%d/%d)",
+                        signal_num, signal_tries, self.MAX_SIGNAL_RESUMES,
                     )
-                    self._resume = True
-                    if attempt == self.MAX_RETRIES - 1:
+                    if signal_tries >= self.MAX_SIGNAL_RESUMES:
+                        self.logger.warning(
+                            "killed %d times from outside; giving this task up",
+                            signal_tries,
+                        )
                         raise
+                    self._resume = True
                     continue
 
                 log_path = EnvironmentPaths.agent_dir / "codex.txt"
                 if not await self._codex_log_has_5xx(environment, log_path.as_posix()):
                     raise
-                if attempt == self.MAX_RETRIES - 1:
+                api_tries += 1
+                if api_tries >= self.MAX_RETRIES:
                     self.logger.warning(
                         "codex failed with upstream 5xx after %d attempts; giving up",
-                        self.MAX_RETRIES,
+                        api_tries,
                     )
                     raise
 
@@ -369,7 +390,11 @@ class LocalCodex(Codex):
     ) -> bool:
         result = await environment.exec(
             command=(
-                f"grep -iE '5[0-9]{{2}}|server.error|internal.error' "
+                # Anchored to how an HTTP failure is actually written. The old
+                # pattern was a bare 5[0-9]{2}, which matched "tokens: 512" and
+                # "width=1520" and reported a server error on every healthy run.
+                f"grep -iE '(status|code|error)[^0-9]{{0,12}}5[0-9]{{2}}|"
+                f"HTTP/[0-9.]+ 5[0-9]{{2}}|server.error|internal.server.error' "
                 f"{shlex.quote(log_path)} | tail -1 || true"
             ),
         )
