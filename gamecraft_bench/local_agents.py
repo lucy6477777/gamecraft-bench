@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shlex
 
 from harbor.agents.installed.base import (
@@ -318,6 +319,31 @@ class LocalCodex(Codex):
                 return
             except NonZeroAgentExitCodeError as exc:
                 last_exc = exc
+
+                # A negative exit code means a signal, not a failure the agent
+                # chose. On 2026-08-28 two full batches of 12 trials each were
+                # SIGTERMed within 250 ms, mid-request, with the API returning
+                # 200s one second earlier: this box runs several other agent
+                # sessions, and a `pkill -f codex` from any of them matches
+                # every one of these processes at once. $47 of generation was
+                # lost because the old code only retried on a 5xx in the log,
+                # and a killed run leaves no 5xx.
+                #
+                # Retry with resume, not from scratch. codex has already
+                # written its rollout, so `codex exec resume --last` picks the
+                # conversation up instead of paying for the same tokens twice.
+                signal_num = self._exit_signal(exc)
+                if signal_num is not None:
+                    self.logger.warning(
+                        "codex was killed by signal %d (not its own failure); "
+                        "resuming on attempt %d/%d",
+                        signal_num, attempt + 2, self.MAX_RETRIES,
+                    )
+                    self._resume = True
+                    if attempt == self.MAX_RETRIES - 1:
+                        raise
+                    continue
+
                 log_path = EnvironmentPaths.agent_dir / "codex.txt"
                 if not await self._codex_log_has_5xx(environment, log_path.as_posix()):
                     raise
@@ -327,6 +353,15 @@ class LocalCodex(Codex):
                         self.MAX_RETRIES,
                     )
                     raise
+
+    # "Command failed (exit -15): ..." -- subprocess reports a signal death as
+    # the negated signal number.
+    _EXIT_SIGNAL_RE = re.compile(r"Command failed \(exit -(\d+)\)")
+
+    @classmethod
+    def _exit_signal(cls, exc: BaseException) -> int | None:
+        m = cls._EXIT_SIGNAL_RE.search(str(exc))
+        return int(m.group(1)) if m else None
 
     @staticmethod
     async def _codex_log_has_5xx(
