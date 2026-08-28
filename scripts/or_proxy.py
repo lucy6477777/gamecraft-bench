@@ -58,6 +58,8 @@ class Proxy:
             return raw, None          # not JSON: forward untouched
         if not isinstance(body, dict):
             return raw, None
+        self._normalise_input(body)
+
         if not self.providers:
             # Free routing. OpenRouter already excludes endpoints that cannot
             # serve the request's parameters -- an agent request always carries
@@ -78,6 +80,46 @@ class Proxy:
             "allow_fallbacks": self.allow_fallbacks,
         }
         return json.dumps(body).encode(), body.get("model")
+
+    def _dump_bad_request(self, raw: bytes, status: int) -> str | None:
+        """Keep the request that was rejected, not just the rejection.
+
+        OpenRouter answered a codex auto-compact with `invalid_prompt` and a
+        path of input[349].content -- which names the offending item but not
+        its shape, and the request is the only place that shape exists. One
+        file per rejection, next to the usage log.
+        """
+        try:
+            d = self.log_path.parent / "bad_requests"
+            d.mkdir(parents=True, exist_ok=True)
+            f = d / f"{int(time.time())}_{status}.json"
+            f.write_bytes(raw[:4_000_000])
+            return str(f)
+        except OSError:
+            return None
+
+    @staticmethod
+    def _normalise_input(body: dict) -> None:
+        """Give reasoning items the `content` OpenRouter insists on.
+
+        codex's auto-compact resends the whole conversation, reasoning items
+        included, and emits those without a `content` key -- valid against
+        OpenAI's own Responses API, rejected by OpenRouter's stricter union
+        with "expected array, received undefined". The compact then fails, and
+        a failed compact takes the trial with it: one died at 56 minutes with a
+        built game and no demo traces.
+
+        Adding an empty array changes nothing semantically -- the reasoning is
+        carried in `summary` -- and only touches items that lack the key.
+        """
+        items = body.get("input")
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if (isinstance(item, dict)
+                    and item.get("type") == "reasoning"
+                    and "content" not in item):
+                item["content"] = []
 
     def _record(self, **fields) -> None:
         fields["ts"] = time.time()
@@ -125,9 +167,12 @@ class Proxy:
             pass
         finally:
             if gen_id or upstream.status >= 400:
+                dumped = (self._dump_bad_request(raw, upstream.status)
+                          if upstream.status >= 400 else None)
                 self._record(path=request.match_info["tail"], model=model,
                              gen_id=gen_id, status=upstream.status,
-                             error=bytes(err).decode("utf-8", "replace") if err else None)
+                             error=bytes(err).decode("utf-8", "replace") if err else None,
+                             request_dump=dumped)
         return out
 
 
