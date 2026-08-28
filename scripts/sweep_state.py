@@ -67,15 +67,30 @@ def trial_rows(prefix: str):
             exc = (d.get("exception_info") or {}).get("exception_type")
             trial = res.parent
             mp4 = len(list((trial / "verifier" / "demos").glob("*/*.mp4")))
-            yield task, exc, mp4, trial
+            traces = len(list(
+                (trial / "sandbox" / "workspace" / "game" / "demo_outputs").glob("*.json")))
+            yield task, exc, mp4, traces, trial
 
 
 def classify(prefix: str):
     best: dict[str, tuple[str, str | None, Path]] = {}
     order = {"done": 3, "needs_replay": 2, "retry": 1}
-    for task, exc, mp4, trial in trial_rows(prefix):
+    for task, exc, mp4, traces, trial in trial_rows(prefix):
         if exc in SCOREABLE:
-            state = "done" if mp4 > 0 else "needs_replay"
+            # Three cases, and only the middle one is worth any work:
+            #   recordings exist                -> finished
+            #   traces but no recordings        -> replay can build them, free
+            #   no traces at all                -> finished, and the score is 0
+            # The last is not a failure to repair. The agent spent the whole
+            # 7200 s the benchmark allows and never demonstrated its game;
+            # BUILD * 0 is the answer, and running it again would be giving the
+            # model a second budget that no other model on the board received.
+            if mp4 > 0:
+                state = "done"
+            elif traces > 0:
+                state = "needs_replay"
+            else:
+                state = "done"
         elif exc in INFRA:
             state = "retry"
         else:
