@@ -53,6 +53,28 @@ def credits():
         return None, None
 
 
+def working(minutes: float = 8.0) -> int:
+    """Trials whose rollout grew recently -- the only per-trial proof of work.
+
+    codex appends to its rollout on every turn, so a fresh mtime means that
+    agent is still doing something. The workspace is not a substitute: a model
+    thinking for fifteen minutes writes no files, and the API log cannot be
+    attributed to a trial at all.
+    """
+    now = time.time()
+    n = 0
+    for env in Path("/tmp/gamecraft-bench-sandboxes").glob("*__env"):
+        newest = 0.0
+        for r in env.rglob("rollout-*.jsonl"):
+            try:
+                newest = max(newest, r.stat().st_mtime)
+            except OSError:
+                continue
+        if newest and (now - newest) / 60 < minutes:
+            n += 1
+    return n
+
+
 def agents():
     try:
         out = subprocess.run(["pgrep", "-fc", "codex exec"], capture_output=True,
@@ -95,11 +117,16 @@ def main() -> int:
         out.append(f"批量猝死: 被外部杀 {prev.get('killed')} -> {killed}"
                    f"（CancelledError 不计，那是我们自己停的）")
     # Paying without finishing anything.
+    busy = working()
     if spend and prev.get("spend"):
         burn = spend - prev["spend"]
-        made = done - prev.get("done", done)
-        if burn > BURN_ALERT and made == 0:
-            out.append(f"烧了 ${burn:.2f} 但零完成 — done={done} retry={retry} 在飞={n}")
+        # "Nothing finished" is not waste: every trial in a round takes up to
+        # the benchmark's two hours, so the first two hours legitimately show
+        # zero completions and a five-figure token bill. Waste is money moving
+        # while no agent is doing anything -- no rollout has grown.
+        if burn > BURN_ALERT and busy == 0:
+            out.append(f"烧了 ${burn:.2f} 但 0/{n} 个 agent 在动（rollout 全无追加）"
+                       f" — done={done} retry={retry}")
     if left is None:
         out.append("余额查不到 — 余额告警此刻是失效的，先修这个再谈别的")
     else:
@@ -119,13 +146,14 @@ def main() -> int:
     if not out and tick % 2 == 0:
         bal = f"${left:.0f}" if left is not None else "?"
         print(f"进度 done={done} 补回放={replay} 重跑={retry}"
-              f"(其中外部杀 {killed}) / {total} | 在飞 {n} | 余额 {bal}",
+              f"(其中外部杀 {killed}) / {total} | 在飞 {n}(干活 {busy}) | 余额 {bal}",
               flush=True)
 
     STATE.write_text(json.dumps({"tick": tick, "done": done, "retry": retry,
                                  "killed": killed,
                                  "spend": spend, "left": left, "agents": n,
-                                 "quiet": len(quiet), "at": time.time()}))
+                                 "quiet": len(quiet), "busy": busy,
+                                 "at": time.time()}))
     return 0
 
 
