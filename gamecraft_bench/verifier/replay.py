@@ -228,7 +228,7 @@ def replay_trace(
             stdin=subprocess.PIPE, stdout=ffmpeg_log, stderr=ffmpeg_log,
         )
         procs.append(ffmpeg)
-        _wait_for_ffmpeg_capture(ffmpeg, ffmpeg_log_path, timeout=15.0)
+        _wait_for_ffmpeg_capture(ffmpeg, ffmpeg_log_path, timeout=60.0)
 
         # 4. Walk events on a real-time clock anchored at recording start.
         #    A wall-clock deadline (max_replay_seconds) bounds the whole
