@@ -510,7 +510,15 @@ def _stop(proc: subprocess.Popen, *, term_timeout: float = 5.0) -> int:
         return proc.wait(timeout=term_timeout)
     except subprocess.TimeoutExpired:
         proc.kill()
-        return proc.wait(timeout=2.0)
+        try:
+            return proc.wait(timeout=10.0)
+        except subprocess.TimeoutExpired:
+            # A SIGKILLed process that still won't reap is stuck in the
+            # kernel (D-state, usually GPU/X teardown under load). Crashing
+            # the whole scoring run over an already-dead-in-law zombie turned
+            # a finished game into a false zero once; abandon it instead and
+            # let init collect the corpse.
+            return -9
 
 
 def _find_godot_window(env: dict, *, pid: int, timeout: float) -> str:
