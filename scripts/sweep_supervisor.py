@@ -35,12 +35,13 @@ sys.path.insert(0, str(REPO / "scripts"))
 from sweep_state import all_tasks, classify            # noqa: E402
 
 
-def harbor_alive() -> bool:
-    r = subprocess.run(["pgrep", "-fc", "harbor run"], capture_output=True, text=True)
-    try:
-        return int((r.stdout or "0").strip()) > 0
-    except ValueError:
-        return False
+def harbor_alive(prefix: str) -> bool:
+    """Only OUR harbor. A global match sees somebody else's sweep and sits idle
+    believing ours is still running -- and the watchdog that outlives its own
+    task is the one that starts a round on top of a name already in use."""
+    r = subprocess.run(["pgrep", "-af", "harbor run"], capture_output=True, text=True)
+    return any(f"--job-name {prefix}" in ln or f"--job-name={prefix}" in ln
+               for ln in (r.stdout or "").splitlines())
 
 
 def balance() -> float | None:
@@ -65,6 +66,30 @@ def _key_from_env_file() -> str:
     except OSError:
         pass
     return ""
+
+
+def own_cost_per_trial(prefix: str = "qwen3.8-27b-r") -> float:
+    """Our spend per trial, from our own token counts -- not from the balance.
+
+    The OpenRouter key is shared with other people, so the movement in
+    total_usage is partly theirs; pricing the floor off it means their traffic
+    decides when our sweep stops. harbor counts our tokens off the codex
+    rollouts, and list price turns that into dollars that are only ours.
+    """
+    IN, OUT = 4.25e-7, 2.55e-6          # qwen3.8-27b list price per token
+    tok_in = tok_out = 0
+    trials = 0
+    for res in Path(JOBS).glob(f"{prefix}*/result.json"):
+        try:
+            st = json.loads(res.read_text()).get("stats") or {}
+        except (OSError, json.JSONDecodeError):
+            continue
+        tok_in += st.get("n_input_tokens") or 0
+        tok_out += st.get("n_output_tokens") or 0
+        trials += st.get("n_completed_trials") or 0
+    if not trials:
+        return 5.88
+    return (tok_in * IN + tok_out * OUT) / trials
 
 
 def remaining(prefix: str) -> list[str]:
@@ -99,21 +124,26 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--prefix", default="qwen3.8-27b-r")
     ap.add_argument("--concurrency", type=int, default=12)
-    ap.add_argument("--per-task", type=float, default=5.88,
-                    help="Measured dollars per finished trial, for the floor.")
+    ap.add_argument("--per-task", type=float, default=None,
+                    help="Dollars per finished trial. Measured from our own "
+                         "token ledger when omitted -- the account balance is "
+                         "shared with other people, so a credits diff prices "
+                         "their traffic into our floor.")
     ap.add_argument("--floor-margin", type=float, default=20.0)
     ap.add_argument("--poll", type=int, default=60)
     ap.add_argument("--max-rounds", type=int, default=12,
                     help="Refuse to spin forever if rounds keep dying instantly.")
     args = ap.parse_args()
 
-    floor = args.concurrency * args.per_task + args.floor_margin
-    print(f"supervisor: 每轮门槛 ${floor:.0f}（{args.concurrency} × ${args.per_task} + ${args.floor_margin} 余量）",
+    per_task = args.per_task if args.per_task is not None else own_cost_per_trial()
+    floor = args.concurrency * per_task + args.floor_margin
+    print(f"supervisor: 每轮门槛 ${floor:.0f}（{args.concurrency} × ${per_task:.2f}/题"
+          f" + ${args.floor_margin} 余量；单价来自自家 token 账本）",
           flush=True)
     started = 0
 
     while True:
-        if harbor_alive():
+        if harbor_alive(args.prefix):
             time.sleep(args.poll)
             continue
 

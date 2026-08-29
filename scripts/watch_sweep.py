@@ -12,9 +12,11 @@ from pathlib import Path
 # Import the classifier by path rather than as a package: making `scripts` one
 # would mean dropping an __init__.py into the repo just to satisfy this watcher.
 sys.path.insert(0, "/home/admin/wenyi/gamecraft-bench/scripts")
-from sweep_state import classify, stalled, all_tasks           # noqa: E402
+from sweep_state import classify, all_tasks                    # noqa: E402
+from vitals import vitals, verdict, confirmed_dead             # noqa: E402
 
 STATE = Path("/home/admin/wenyi/logs_vllm/.watch_state.json")
+JOBS_DIR = "/home/admin/wenyi/gamecraft-bench-jobs"
 PREFIX = "qwen3.8-27b-r"
 BURN_ALERT = 8.0        # dollars in one tick that produced nothing
 STALL_MIN = 35.0        # a workspace quiet this long is worth looking at
@@ -134,25 +136,46 @@ def main() -> int:
             if left <= t < (prev.get("left") or 1e9):
                 out.append(f"余额剩 ${left:.0f}（done {done}/{total}）")
                 break
-    # Quiet workspaces are reported, never acted on here: a long think between
-    # tool calls writes nothing, and killing that would be killing progress.
-    quiet = stalled(PREFIX, STALL_MIN)
-    if len(quiet) > prev.get("quiet", 0) and quiet:
-        out.append(f"{len(quiet)} 个 trial 工作区静默 >{STALL_MIN:.0f} 分钟: "
-                   + ", ".join(f"{a}({b}m)" for a, b in quiet[:3]) + " — 待人工鉴别死活")
+    # A verdict, not a signal. The heartbeat used to print idle minutes and left
+    # the reading to whoever saw it, and every misread this run came from that:
+    # a backoff window looked like a stall, a canary that had finished its sleep
+    # looked like a kill. Three layers decide now, and a trial is only called
+    # dead after two SUSPECT samples at least three minutes apart -- longer than
+    # the 300s backoff that would otherwise be mistaken for a stop.
+    verdicts: dict[str, str] = {}
+    samples: dict[str, dict] = {}
+    prev_samples = prev.get("samples") or {}
+    for job in Path(JOBS_DIR).glob(f"{PREFIX}*"):
+        for cfg in job.glob("*/config.json"):
+            trial = cfg.parent
+            if (trial / "result.json").exists():
+                continue
+            v = vitals(trial)
+            samples[trial.name] = v
+            verdicts[trial.name] = verdict(v)
+            if confirmed_dead(prev_samples.get(trial.name), v):
+                out.append(f"判定真死（三层证据 × 两次采样）: {trial.name}"
+                           f" — API静默{v['api_idle_min']:.0f}分"
+                           f" 产物静默{v['artifact_idle_min']:.0f}分 树CPU 0")
+    n_susp = sum(1 for x in verdicts.values() if x == "SUSPECT")
+    n_gone = sum(1 for x in verdicts.values() if x == "GONE")
+    n_ok = sum(1 for x in verdicts.values() if x == "HEALTHY")
+    if n_susp > prev.get("suspect", 0):
+        out.append(f"{n_susp} 个 trial 转 SUSPECT（三层皆静默），等第二次采样确认")
 
     for line in out:
         print(line, flush=True)
     if not out and tick % 2 == 0:
         bal = f"${left:.0f}" if left is not None else "?"
         print(f"进度 done={done} 补回放={replay} 重跑={retry}"
-              f"(其中外部杀 {killed}) / {total} | 在飞 {n}(干活 {busy}) | 余额 {bal}",
+              f"(其中外部杀 {killed}) / {total} | 在飞判决 "
+              f"HEALTHY={n_ok} SUSPECT={n_susp} GONE={n_gone} | 余额 {bal}",
               flush=True)
 
     STATE.write_text(json.dumps({"tick": tick, "done": done, "retry": retry,
                                  "killed": killed,
                                  "spend": spend, "left": left, "agents": n,
-                                 "quiet": len(quiet), "busy": busy,
+                                 "suspect": n_susp, "samples": samples, "busy": busy,
                                  "at": time.time()}))
     return 0
 
