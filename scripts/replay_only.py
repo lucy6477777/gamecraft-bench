@@ -139,8 +139,12 @@ def main() -> int:
         for err in result.errors[:3]:
             print(f"      ! {err}")
             rc = 1
-        # The rubric belongs beside the artifacts so rejudge.py stays self-contained.
-        shutil.copy2(rubric_src, out_dir / "rubric.json")
+        # The rubric belongs beside the artifacts so rejudge.py stays
+        # self-contained -- but on a second pass it is already there, and
+        # copy2 onto itself raises rather than doing nothing.
+        dest = out_dir / "rubric.json"
+        if rubric_src.resolve() != dest.resolve():
+            shutil.copy2(rubric_src, dest)
     return rc
 
 
