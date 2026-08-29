@@ -42,6 +42,49 @@ FRAME_GLOB = "verifier/demos/*/frames/*.png"
 GAME_SUBPATH = "sandbox/workspace/game"
 
 
+def write_manifest(staging: Path, tasks_dir: Path) -> int:
+    """Say which trial is the answer for each task.
+
+    Thirty-five of sixty-five tasks have been attempted more than once -- killed
+    from outside, stopped by us, then re-run -- so the snapshot holds several
+    trials per task and rejudge would score all of them, averaging
+    infrastructure noise into the model's result. The classifier already picks
+    the best attempt per task across rounds; this writes that choice down where
+    the judging machine can read it.
+
+    Each later upload rewrites the file, so adding rounds updates the answer
+    rather than leaving a stale one behind.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from sweep_state import classify, all_tasks
+
+    rows = {}
+    for prefix in ("qwen3.8-27b-r", "glm-5.3-flash", "kimi-k2.6"):
+        for task, (state, exc, trial) in classify(prefix).items():
+            model = ("qwen3.8-27b" if prefix.startswith("qwen")
+                     else prefix.rstrip("-"))
+            rows.setdefault(model, {})[task] = {
+                "state": state,
+                "exception": exc,
+                "trial": f"{trial.parent.name}/{trial.name}",
+            }
+    doc = {
+        "note": ("Per task, the trial that counts. Score only these; other "
+                 "trials for the same task are earlier attempts that were "
+                 "killed or cancelled, and averaging them in would report "
+                 "infrastructure noise as model performance."),
+        "states": {
+            "done": "scoreable as-is",
+            "needs_replay": "has demo traces but no recording; replay_only.py rebuilds it free",
+            "retry": "never got a full budget; not a valid result",
+        },
+        "total_tasks": len(all_tasks()),
+        "models": rows,
+    }
+    (staging / "MANIFEST.json").write_text(json.dumps(doc, indent=1, sort_keys=True))
+    return sum(len(v) for v in rows.values())
+
+
 def task_name_of(trial: Path) -> str | None:
     try:
         result = json.loads((trial / "result.json").read_text())
@@ -85,10 +128,37 @@ def link_tree(src: Path, dst: Path, skip_frames: bool = True,
     return files, bytes_
 
 
+def authoritative() -> set[Path]:
+    """The one trial per task that counts, as the classifier picks it.
+
+    Thirty-five of sixty-five tasks were attempted more than once, so most
+    trials on disk are earlier attempts that were killed or cancelled -- 186 of
+    253, and 47% of the bytes. They are not results: the agent never got its
+    full budget, and shipping them means the judging machine either scores
+    noise or has to be told, per trial, to ignore it. The manifest already
+    names the right one; this makes the upload agree with the manifest instead
+    of contradicting it.
+    """
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from sweep_state import classify
+    keep = set()
+    for prefix in ("qwen3.8-27b-r", "glm-5.3-flash", "kimi-k2.6"):
+        for _task, (state, _exc, trial) in classify(prefix).items():
+            if state in ("done", "needs_replay"):
+                keep.add(trial.resolve())
+    return keep
+
+
 def stage(model_key: str, job_dir: Path, staging: Path, tasks_dir: Path,
-          skip_frames: bool = True, archive_game: bool = True) -> tuple[int, int]:
+          skip_frames: bool = True, archive_game: bool = True,
+          keep: set[Path] | None = None) -> tuple[int, int]:
     out = staging / model_key
     trials = sorted(p.parent for p in job_dir.glob("*/result.json"))
+    if keep is not None:
+        skipped = [t for t in trials if t.resolve() not in keep]
+        trials = [t for t in trials if t.resolve() in keep]
+        if skipped:
+            print(f"  {model_key}: 跳过 {len(skipped)} 个非权威 trial（重跑/被杀，不是结果）")
     if not trials:
         print(f"  {model_key}: no trials under {job_dir}", file=sys.stderr)
         return 0, 0
@@ -153,6 +223,10 @@ def main() -> int:
                     default=True,
                     help="Upload the generated project as a file tree instead of "
                          "one game.tar.gz per trial. Blows up the object count.")
+    ap.add_argument("--all-trials", dest="only_authoritative", action="store_false",
+                    default=True,
+                    help="Upload every trial, including attempts that were killed "
+                         "or cancelled. Off by default: they are not results.")
     ap.add_argument("--workers", type=int, default=8)
     args = ap.parse_args()
 
@@ -170,12 +244,17 @@ def main() -> int:
     staging.mkdir(parents=True)
 
     print(f"staging -> {staging}")
+    keep = authoritative() if args.only_authoritative else None
+    if keep is not None:
+        print(f"只传权威 trial：{len(keep)} 个")
     total_f = total_b = 0
     for key, job_dir in jobs:
         f, b = stage(key, job_dir, staging, args.tasks_dir, args.skip_frames,
-                     args.archive_game)
+                     args.archive_game, keep)
         total_f += f
         total_b += b
+    n = write_manifest(staging, args.tasks_dir)
+    print(f"MANIFEST.json: {n} 道题的权威 trial 已写入")
     print(f"total: {total_f:,} files, {total_b/2**30:.2f} GiB")
 
     if args.dry_run:
