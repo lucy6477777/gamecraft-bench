@@ -94,9 +94,13 @@ USAGE_LOG="$LOG_ROOT/or_usage_${KEY}_${STAMP}.jsonl"
 # started with. Retire a proxy older than its own source, by the pid it wrote
 # down -- never by pattern, which on this host matches the caller's own shell.
 STALE=""
-STAMP="/tmp/or_proxy_${PORT}.stamp"
-if [ -f "$STAMP" ]; then
-    STALE=$("$REPO_ROOT/.venv/bin/python" - "$STAMP" "$REPO_ROOT/scripts/or_proxy.py" <<'PYEOF'
+# NOT $STAMP: that name is already the run timestamp used to build every log
+# filename above. Shadowing it turned the proxy log path into
+# or_proxy_glm-5.3-flash_/tmp/or_proxy_8503.stamp.log -- a directory that does
+# not exist, so the proxy could not start and took glm round 2 down with it.
+PROXY_STAMP="/tmp/or_proxy_${PORT}.stamp"
+if [ -f "$PROXY_STAMP" ]; then
+    STALE=$("$REPO_ROOT/.venv/bin/python" - "$PROXY_STAMP" "$REPO_ROOT/scripts/or_proxy.py" <<'PYEOF'
 import json, os, sys
 try:
     st = json.load(open(sys.argv[1]))
