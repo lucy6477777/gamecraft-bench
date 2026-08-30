@@ -48,6 +48,43 @@ class Proxy:
         self.allow_fallbacks = allow_fallbacks
         self.session: ClientSession | None = None
 
+    # Every shape the Responses API accepts inside input[]. Anything else is
+    # not a conversation item at all.
+    _ITEM_TYPES = frozenset({
+        "message", "reasoning", "function_call", "function_call_output",
+        "computer_call", "computer_call_output", "custom_tool_call",
+        "custom_tool_call_output", "local_shell_call", "local_shell_call_output",
+        "file_search_call", "web_search_call", "code_interpreter_call",
+        "image_generation_call", "mcp_call", "mcp_list_tools", "mcp_approval_request",
+        "mcp_approval_response", "item_reference",
+    })
+
+    def _strip_non_items(self, body: dict) -> int:
+        """Drop rollout bookkeeping that is not a conversation item.
+
+        codex's remote compact sends the session back as input[], and the
+        session file is not only conversation: it also carries session_meta,
+        world_state and turn_context records, and turn_context is written
+        again mid-session (observed at lines 177, 252, 502 and 724 of one
+        1,327-line rollout). OpenRouter validates every element of input[]
+        against the item union and rejects the whole request when one has no
+        recognised `type` -- which is exactly what killed eight glm trials
+        with `invalid_prompt ... input[579].type: expected string, received
+        undefined`. OpenAI's own endpoint evidently tolerates them, so codex
+        never had to care.
+
+        Removing them cannot lose conversation: none of these records is one.
+        """
+        items = body.get("input")
+        if not isinstance(items, list):
+            return 0
+        kept = [i for i in items
+                if not isinstance(i, dict) or i.get("type") in self._ITEM_TYPES]
+        dropped = len(items) - len(kept)
+        if dropped:
+            body["input"] = kept
+        return dropped
+
     def _pin(self, raw: bytes) -> tuple[bytes, str | None]:
         """Inject provider preferences, if any. Returns (body, model)."""
         if not raw:
@@ -58,6 +95,9 @@ class Proxy:
             return raw, None          # not JSON: forward untouched
         if not isinstance(body, dict):
             return raw, None
+        dropped = self._strip_non_items(body)
+        if dropped:
+            self._record(event="stripped_non_items", dropped=dropped)
         if not self.providers:
             # Free routing. OpenRouter already excludes endpoints that cannot
             # serve the request's parameters -- an agent request always carries
