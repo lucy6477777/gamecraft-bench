@@ -98,9 +98,27 @@ def classify(prefix: str):
             # something behind; otherwise treat it as worth one more attempt.
             state = "done" if mp4 > 0 else "retry"
         prev = best.get(task)
-        if prev is None or order[state] > order[prev[0]]:
+        # Best state wins, because a task finished in r2 must not be rerun
+        # just because r4's attempt at it was killed. But on a tie the newer
+        # attempt wins: with r3 and r4 both 'retry', glob order handed back
+        # r3's CancelledError -- our own stop hours earlier -- and hid the
+        # NonZeroAgentExitCodeError that r4 had just died of. The state was
+        # right and the reason was stale, which is the worst of both: the
+        # round plan looked correct while the diagnosis pointed at the wrong
+        # failure, and twice I read 'qwen has no failures' off it.
+        if (prev is None
+                or order[state] > order[prev[0]]
+                or (order[state] == order[prev[0]] and _mtime(trial) > _mtime(prev[2]))):
             best[task] = (state, exc, trial)
     return best
+
+
+def _mtime(trial: Path) -> float:
+    r = trial / "result.json"
+    try:
+        return r.stat().st_mtime
+    except OSError:
+        return 0.0
 
 
 def stalled(prefix: str, minutes: float):
