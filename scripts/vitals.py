@@ -169,6 +169,25 @@ def _in_backoff(trial_dir) -> bool:
     return "after backoff" in last[0]
 
 
+def _in_verifier(trial_dir) -> bool:
+    """True when the agent is finished and the verifier phase is running.
+
+    The agent process is gone by then, so the process layer reads empty --
+    but build_check and the Xvfb replay are the part of the trial that
+    actually produces the artifacts, and they take minutes.
+    """
+    if not trial_dir:
+        return False
+    log = Path(trial_dir) / "trial.log"
+    if not log.exists():
+        return False
+    try:
+        tail = log.read_text(errors="replace")[-2000:]
+    except OSError:
+        return False
+    return "/tests/test.sh" in tail
+
+
 def verdict(v: dict, idle_min: float = 15.0) -> str:
     """HEALTHY / SUSPECT / GONE for a single sample.
 
@@ -181,7 +200,12 @@ def verdict(v: dict, idle_min: float = 15.0) -> str:
         # external SIGTERM the harness sleeps up to 300s before it
         # resumes, and for that whole window the tree is empty and
         # silent -- indistinguishable from death unless we ask.
-        return "BACKOFF" if _in_backoff(v.get("dir")) else "GONE"
+        d = v.get("dir")
+        if _in_backoff(d):
+            return "BACKOFF"
+        if _in_verifier(d):
+            return "VERIFYING"
+        return "GONE"
     quiet_api = v["api_idle_min"] < 0 or v["api_idle_min"] >= idle_min
     quiet_art = v["artifact_idle_min"] < 0 or v["artifact_idle_min"] >= idle_min
     no_cpu = v["tree_cpu_jiffies"] == 0

@@ -296,6 +296,7 @@ class LocalCodex(Codex):
     # cleanup script is not sized for a standing one, and running out
     # discards a trial that was never unhealthy.
     MAX_SIGNAL_RESUMES = 24      # killed from outside; resumes, does not restart
+    MAX_RESUME_FALLBACKS = 2     # resume had no session; restart from scratch
     RETRY_BACKOFF_SEC = 30       # doubles per attempt, capped below
     MAX_BACKOFF_SEC = 300
 
@@ -319,6 +320,7 @@ class LocalCodex(Codex):
         last_exc: NonZeroAgentExitCodeError | None = None
         api_tries = 0            # attempts spent on upstream 5xx
         signal_tries = 0         # attempts spent being killed from outside
+        resume_fallbacks = 0     # attempts spent on a resume with nothing to resume
         attempt = 0
         while True:
             if attempt > 0:
@@ -367,6 +369,24 @@ class LocalCodex(Codex):
                         )
                         raise
                     self._resume = True
+                    continue
+
+                # A resume that cannot resume. `codex exec resume --last`
+                # exits 1 when there is no session to pick up -- harbor's
+                # setup guard says so in as many words ("Cannot resume Codex:
+                # no previous session logs found") -- which happens whenever
+                # the killer lands before codex has written its first rollout.
+                # Raising here throws away a trial for the sake of the few
+                # seconds of work we were trying to preserve. Start over
+                # instead; that is what the next round would do anyway, and
+                # this way it costs a slot rather than a whole round.
+                if self._resume and resume_fallbacks < self.MAX_RESUME_FALLBACKS:
+                    resume_fallbacks += 1
+                    self.logger.warning(
+                        "resume failed (%d/%d); starting this task from scratch",
+                        resume_fallbacks, self.MAX_RESUME_FALLBACKS,
+                    )
+                    self._resume = False
                     continue
 
                 log_path = EnvironmentPaths.agent_dir / "codex.txt"
