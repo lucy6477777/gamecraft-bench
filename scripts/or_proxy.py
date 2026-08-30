@@ -24,6 +24,7 @@ carries one gets a line here; scripts/or_cost.py turns the file into a bill.
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import re
 import time
@@ -221,6 +222,21 @@ def main() -> int:
 
     app.on_startup.append(_open)
     app.on_cleanup.append(_close)
+
+    # A stamp the runner can read to tell a live proxy from a current one.
+    # run_openrouter.sh reuses whatever already answers on the port, which is
+    # right across rounds of the same sweep and wrong after this file changes:
+    # the compact filter would have sat in git while every round kept talking
+    # to the process started before it existed.
+    try:
+        stamp = Path(f"/tmp/or_proxy_{args.port}.stamp")
+        stamp.write_text(json.dumps({
+            "pid": os.getpid(),
+            "src_mtime": Path(__file__).stat().st_mtime,
+            "started": time.time(),
+        }))
+    except OSError:
+        pass
 
     if args.provider:
         print(f">> pinning to {args.provider} (fallbacks={args.allow_fallbacks})", flush=True)

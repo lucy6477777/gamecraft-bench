@@ -89,6 +89,30 @@ USAGE_LOG="$LOG_ROOT/or_usage_${KEY}_${STAMP}.jsonl"
 # codex cannot put `provider` in the body, so the proxy does. It also keeps the
 # generation ids, which is the only way to get real spend back out of
 # OpenRouter afterwards -- see scripts/or_cost.py.
+# Reuse is right across rounds of one sweep and wrong once or_proxy.py has
+# changed underneath it: the running process still holds the code it was
+# started with. Retire a proxy older than its own source, by the pid it wrote
+# down -- never by pattern, which on this host matches the caller's own shell.
+STALE=""
+STAMP="/tmp/or_proxy_${PORT}.stamp"
+if [ -f "$STAMP" ]; then
+    STALE=$("$REPO_ROOT/.venv/bin/python" - "$STAMP" "$REPO_ROOT/scripts/or_proxy.py" <<'PYEOF'
+import json, os, sys
+try:
+    st = json.load(open(sys.argv[1]))
+    if st["src_mtime"] < os.stat(sys.argv[2]).st_mtime:
+        print(st["pid"])
+except Exception:
+    pass
+PYEOF
+)
+fi
+if [ -n "$STALE" ] && kill -0 "$STALE" 2>/dev/null; then
+    echo ">> proxy on :$PORT predates scripts/or_proxy.py; retiring pid $STALE" >&2
+    kill "$STALE" 2>/dev/null || true
+    for _ in $(seq 1 20); do kill -0 "$STALE" 2>/dev/null || break; sleep 0.5; done
+fi
+
 if curl -sf -o /dev/null "http://127.0.0.1:$PORT/v1/models" 2>/dev/null; then
     echo ">> proxy already up on :$PORT (reusing; its pin/log may differ)" >&2
 else
