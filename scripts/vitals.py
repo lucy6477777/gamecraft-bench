@@ -212,15 +212,56 @@ def verdict(v: dict, idle_min: float = 15.0) -> str:
     return "SUSPECT" if (quiet_api and quiet_art and no_cpu) else "HEALTHY"
 
 
+LONG_WINDOW_SEC = 15.0    # what a first-turn wait actually needs to show up
+
+
+def alive_on_long_window(trial_name: str, seconds: float = LONG_WINDOW_SEC) -> bool | None:
+    """Re-measure one trial over a window long enough to catch a slow agent.
+
+    The three-second window in vitals() is the right cost for thirty-six
+    trials at once and the wrong instrument for this question. A qwen trial
+    waiting on its first token wakes only to service packets, and over three
+    seconds it usually consumes nothing at all. On 2026-08-30 six trials read
+    zero twice in a row; measured over fifteen seconds, every one of them --
+    including the two that confirmed_dead had already condemned -- was burning
+    the same one or two jiffies as the peers that had just recovered.
+
+    Returns None when there is no process to measure.
+    """
+    pid = find_trial_pid(trial_name)
+    if pid is None:
+        return None
+    pids = _tree_pids(pid)
+    before = _cpu_jiffies(pids)
+    time.sleep(seconds)
+    if _cpu_jiffies(_tree_pids(find_trial_pid(trial_name)) if pids else []) > before:
+        return True
+    # No CPU even now. Uninterruptible sleep is a real hang; S is a wait.
+    for q in pids:
+        try:
+            if open(f"/proc/{q}/stat").read().split(") ", 1)[1].split()[0] == "D":
+                return False
+        except OSError:
+            continue
+    return True
+
+
 def confirmed_dead(prev: dict | None, cur: dict, min_gap_sec: float = 180.0,
-                   idle_min: float = 15.0) -> bool:
-    """Two SUSPECT samples, far enough apart to outlast a retry cycle.
+                   idle_min: float = 15.0, long_window: bool = True) -> bool:
+    """Two SUSPECT samples far enough apart, then a long-window recheck.
 
     codex backs off up to 300s and the harness retries on its own schedule; a
     window shorter than one backoff period will read self-healing as death.
+    Even two such samples are not enough on their own -- see
+    alive_on_long_window, which is why this refuses to condemn a trial that is
+    merely slow. Pass long_window=False only to test the sampling rule itself.
     """
     if verdict(cur, idle_min) != "SUSPECT":
         return False
     if not prev or verdict(prev, idle_min) != "SUSPECT":
         return False
-    return (cur["at"] - prev["at"]) >= min_gap_sec
+    if (cur["at"] - prev["at"]) < min_gap_sec:
+        return False
+    if not long_window:
+        return True
+    return alive_on_long_window(cur["trial"]) is False
