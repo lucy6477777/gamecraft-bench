@@ -290,7 +290,12 @@ class LocalCodex(Codex):
     # were killed twice within the first 40 minutes -- and spending the same
     # small budget on it means a healthy trial dies for someone else's cleanup.
     MAX_RETRIES = 4              # upstream 5xx
-    MAX_SIGNAL_RESUMES = 8       # killed from outside; resumes, does not restart
+    # 2026-08-29: the killer stopped being occasional. Three independent
+    # sweeps took ~58 SIGTERMs each in forty minutes and every trial was
+    # at 5/8 with hours of work still to do. A budget sized for a stray
+    # cleanup script is not sized for a standing one, and running out
+    # discards a trial that was never unhealthy.
+    MAX_SIGNAL_RESUMES = 24      # killed from outside; resumes, does not restart
     RETRY_BACKOFF_SEC = 30       # doubles per attempt, capped below
     MAX_BACKOFF_SEC = 300
 

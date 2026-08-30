@@ -107,12 +107,66 @@ def vitals(trial_dir: Path) -> dict:
 
     return {
         "trial": name,
+        "dir": str(trial_dir),
         "api_idle_min": (now - api_m) / 60 if api_m else -1.0,
         "artifact_idle_min": (now - art_m) / 60 if art_m else -1.0,
         "tree_cpu_jiffies": cpu,
         "process_alive": alive,
         "at": now,
     }
+
+
+def vitals_batch(trial_dirs: list[Path]) -> dict[str, dict]:
+    """Sample many trials against ONE cpu window instead of one each.
+
+    The per-trial call sleeps three seconds to measure real CPU, which is right
+    for one trial and unusable for thirty-six: the heartbeat took longer than
+    its own interval and timed out. Process trees are enumerated up front, the
+    window is served once, and every trial reads its own delta out of it.
+    """
+    trees: dict[str, list[int]] = {}
+    for t in trial_dirs:
+        pid = find_trial_pid(t.name)
+        trees[t.name] = _tree_pids(pid) if pid else []
+
+    before = {n: _cpu_jiffies(p) for n, p in trees.items()}
+    time.sleep(CPU_WINDOW_SEC)
+    after = {n: _cpu_jiffies(_tree_pids(find_trial_pid(n)) if trees[n] else [])
+             for n in trees}
+
+    now = time.time()
+    out = {}
+    for t in trial_dirs:
+        n = t.name
+        env = SANDBOXES / f"{n}__env"
+        api_m = _newest_mtime(env, "rollout-*.jsonl")
+        art_m = _newest_mtime(t / "sandbox" / "workspace")
+        out[n] = {
+            "trial": n,
+            "dir": str(t),
+            "api_idle_min": (now - api_m) / 60 if api_m else -1.0,
+            "artifact_idle_min": (now - art_m) / 60 if art_m else -1.0,
+            "tree_cpu_jiffies": after[n] - before[n],
+            "process_alive": bool(trees[n]),
+            "at": now,
+        }
+    return out
+
+
+
+def _in_backoff(trial_dir) -> bool:
+    """True when the trial's own log says it is waiting to resume."""
+    if not trial_dir:
+        return False
+    log = Path(trial_dir) / "trial.log"
+    if not log.exists():
+        return False
+    try:
+        tail = log.read_text(errors="replace")[-4000:]
+    except OSError:
+        return False
+    last = [ln for ln in tail.splitlines() if ln.strip()][-1:] or [""]
+    return "after backoff" in last[0]
 
 
 def verdict(v: dict, idle_min: float = 15.0) -> str:
@@ -123,7 +177,11 @@ def verdict(v: dict, idle_min: float = 15.0) -> str:
     means something is still happening and the trial is left alone.
     """
     if not v["process_alive"]:
-        return "GONE"
+        # No agent process is not the same as no progress. After an
+        # external SIGTERM the harness sleeps up to 300s before it
+        # resumes, and for that whole window the tree is empty and
+        # silent -- indistinguishable from death unless we ask.
+        return "BACKOFF" if _in_backoff(v.get("dir")) else "GONE"
     quiet_api = v["api_idle_min"] < 0 or v["api_idle_min"] >= idle_min
     quiet_art = v["artifact_idle_min"] < 0 or v["artifact_idle_min"] >= idle_min
     no_cpu = v["tree_cpu_jiffies"] == 0
