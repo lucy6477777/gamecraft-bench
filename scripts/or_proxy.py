@@ -61,20 +61,25 @@ class Proxy:
     })
 
     def _strip_non_items(self, body: dict) -> int:
-        """Drop rollout bookkeeping that is not a conversation item.
+        """Drop what is not a conversation item before forwarding.
 
-        codex's remote compact sends the session back as input[], and the
-        session file is not only conversation: it also carries session_meta,
-        world_state and turn_context records, and turn_context is written
-        again mid-session (observed at lines 177, 252, 502 and 724 of one
-        1,327-line rollout). OpenRouter validates every element of input[]
-        against the item union and rejects the whole request when one has no
-        recognised `type` -- which is exactly what killed eight glm trials
-        with `invalid_prompt ... input[579].type: expected string, received
-        undefined`. OpenAI's own endpoint evidently tolerates them, so codex
-        never had to care.
+        Settled against 56 captured rejections, all 56 the same shape: the
+        element OpenRouter refuses is the LAST one in input[], and it is
 
-        Removing them cannot lose conversation: none of these records is one.
+            {"type": "compaction_trigger"}
+
+        a sentinel codex appends to ask the server to compact. OpenAI's
+        endpoint knows it; OpenRouter validates every element against the
+        item union and throws out the whole request over it. That is where
+        `input[579].type: expected string, received undefined` came from --
+        579 was that request's last index.
+
+        The first guess written here was rollout bookkeeping (session_meta,
+        world_state, turn_context). Those never leave the rollout file. The
+        filter catches the real one anyway, because it keeps what is a known
+        item rather than dropping what is a known non-item.
+
+        Removing it cannot lose conversation: it is not conversation.
         """
         items = body.get("input")
         if not isinstance(items, list):
@@ -128,6 +133,12 @@ class Proxy:
         its shape, and the request is the only place that shape exists. One
         file per rejection, next to the usage log.
         """
+        # codex probes an endpoint OpenRouter does not implement and takes a
+        # 404 for it several times a minute, with no body at all. One empty
+        # file per probe buried the 66 rejections that carried the answer
+        # under 1,848 that carried nothing.
+        if not raw:
+            return None
         try:
             d = self.log_path.parent / "bad_requests"
             d.mkdir(parents=True, exist_ok=True)
