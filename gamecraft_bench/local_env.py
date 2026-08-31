@@ -272,6 +272,44 @@ class LocalSubprocessEnvironment(BaseEnvironment):
         except asyncio.CancelledError:
             return
 
+
+    @staticmethod
+    def _ppid_map() -> dict[int, int]:
+        """pid -> ppid for every process, in one pass."""
+        out = {}
+        try:
+            r = subprocess.run(["ps", "-eo", "pid,ppid", "--no-headers"],
+                               capture_output=True, text=True, timeout=5)
+        except Exception:  # noqa: BLE001
+            return out
+        for ln in (r.stdout or "").splitlines():
+            f = ln.split()
+            if len(f) == 2:
+                try:
+                    out[int(f[0])] = int(f[1])
+                except ValueError:
+                    continue
+        return out
+
+    def _is_ours(self, pid: int, ppids: dict[int, int]) -> bool:
+        """True when pid descends from a process this environment started.
+
+        Walks up rather than trusting the name: our godot runs are launched by
+        the agent inside our own exec, so they are always below one of the pids
+        we are tracking, and nobody else's are.
+        """
+        mine = set(self._active_exec_pids) | {os.getpid()}
+        seen = set()
+        cur = pid
+        while cur and cur not in seen:
+            if cur in mine:
+                return True
+            seen.add(cur)
+            cur = ppids.get(cur, 0)
+            if cur <= 1:
+                break
+        return False
+
     def _kill_stuck_godot_once(self) -> None:
         try:
             proc = subprocess.run(
@@ -281,6 +319,7 @@ class LocalSubprocessEnvironment(BaseEnvironment):
         except Exception as exc:  # noqa: BLE001
             self.logger.debug("watchdog ps failed: %s", exc)
             return
+        ppids = self._ppid_map()
         for line in (proc.stdout or "").splitlines():
             parts = line.strip().split(None, 3)
             if len(parts) < 4:
@@ -293,6 +332,16 @@ class LocalSubprocessEnvironment(BaseEnvironment):
             except ValueError:
                 continue
             if etimes < self.STUCK_GODOT_KILL_SEC:
+                continue
+            if not self._is_ours(pid, ppids):
+                # This box is shared. `ps -eo` lists everyone's processes, and
+                # "any godot older than five minutes" is a description of a
+                # neighbour's editor session as readily as of our own hung
+                # build check. Killing one of those is the exact thing that
+                # cost this project 24 trials when someone else's sweep did it
+                # to us. An orphan of ours whose parent already died is left
+                # alone here and cleaned up with the sandbox instead: missing
+                # one is recoverable, killing a stranger's is not.
                 continue
             self.logger.warning(
                 "watchdog killing stuck godot pid=%d etime=%ds args=%s",
