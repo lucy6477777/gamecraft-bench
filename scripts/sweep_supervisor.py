@@ -108,11 +108,12 @@ def next_round_number(prefix: str) -> int:
     return n + 1
 
 
-def start_round(tasks: list[str], rnd: int, concurrency: int, prefix: str) -> None:
+def start_round(tasks: list[str], rnd: int, concurrency: int, prefix: str,
+                model_key: str) -> None:
     args = " ".join(f'-i "{t}"' for t in tasks)
     job = f"{prefix}{rnd}"
-    log = LOGS / f"sweep_qwen_r{rnd}.log"
-    cmd = (f'cd {REPO} && ./scripts/run_openrouter.sh qwen38-27b -p tasks {args} '
+    log = LOGS / f"sweep_{prefix.rstrip('-r')}_r{rnd}.log"
+    cmd = (f'cd {REPO} && ./scripts/run_openrouter.sh {model_key} -p tasks {args} '
            f'-n {concurrency} --job-name {job} > {log} 2>&1')
     subprocess.Popen(["setsid", "bash", "-c", cmd],
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -122,7 +123,17 @@ def start_round(tasks: list[str], rnd: int, concurrency: int, prefix: str) -> No
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--prefix", default="qwen3.8-27b-r")
+    ap.add_argument("--model-key", default="qwen38-27b",
+                    help="Key in run_openrouter.sh's registry.")
+    ap.add_argument("--prefix", default="qwen3.8-27b-r",
+                    help="Round naming and our-harbor detection.")
+    ap.add_argument("--class-prefix", default=None,
+                    help="Prefix for classifying past results. Defaults to "
+                         "--prefix. Set it wider when earlier rounds used other "
+                         "directory names: glm's valid results live in "
+                         "glm-5.3-flash and glm-5.3-flash.part1, which a "
+                         "'glm-5.3-flash-r' prefix would not see, and those "
+                         "tasks would be generated a second time for nothing.")
     ap.add_argument("--concurrency", type=int, default=12)
     ap.add_argument("--per-task", type=float, default=None,
                     help="Dollars per finished trial. Measured from our own "
@@ -135,7 +146,9 @@ def main() -> int:
                     help="Refuse to spin forever if rounds keep dying instantly.")
     args = ap.parse_args()
 
-    per_task = args.per_task if args.per_task is not None else own_cost_per_trial()
+    cls_prefix = args.class_prefix or args.prefix
+    per_task = (args.per_task if args.per_task is not None
+                else own_cost_per_trial(cls_prefix))
     floor = args.concurrency * per_task + args.floor_margin
     print(f"supervisor: 每轮门槛 ${floor:.0f}（{args.concurrency} × ${per_task:.2f}/题"
           f" + ${args.floor_margin} 余量；单价来自自家 token 账本）",
@@ -147,7 +160,7 @@ def main() -> int:
             time.sleep(args.poll)
             continue
 
-        todo = remaining(args.prefix)
+        todo = remaining(cls_prefix)
         if not todo:
             print(f"[{time.strftime('%H:%M:%S')}] 140 题全部有结果，supervisor 退出", flush=True)
             return 0
@@ -168,7 +181,7 @@ def main() -> int:
         rnd = next_round_number(args.prefix)
         print(f"[{time.strftime('%H:%M:%S')}] harbor 不在了，剩 {len(todo)} 题，余额 ${bal:.2f}",
               flush=True)
-        start_round(todo, rnd, args.concurrency, args.prefix)
+        start_round(todo, rnd, args.concurrency, args.prefix, args.model_key)
         started += 1
         time.sleep(90)          # 给 harbor 起身的时间，免得判成"还没起来"又开一轮
 

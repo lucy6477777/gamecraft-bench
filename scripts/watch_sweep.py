@@ -17,6 +17,11 @@ from vitals import vitals, verdict, confirmed_dead             # noqa: E402
 
 STATE = Path("/home/admin/wenyi/logs_vllm/.watch_state.json")
 JOBS_DIR = "/home/admin/wenyi/gamecraft-bench-jobs"
+# Three models now, each with its own rounds. The watcher reports them
+# together, because what matters is whether the machine as a whole is producing.
+MODELS = {"qwen": ("qwen3.8-27b-r", "qwen3.8-27b-r"),
+          "kimi": ("kimi-k2.6-r", "kimi-k2.6"),
+          "glm":  ("glm-5.3-flash-r", "glm-5.3-flash")}
 PREFIX = "qwen3.8-27b-r"
 BURN_ALERT = 8.0        # dollars in one tick that produced nothing
 STALL_MIN = 35.0        # a workspace quiet this long is worth looking at
@@ -110,10 +115,16 @@ def main() -> int:
     tick = prev.get("tick", 0) + 1
 
     out = []
-    # A round that has stopped producing agents is a round that has ended.
-    if n == 0 and prev.get("agents", 1) > 0:
-        out.append(f"轮次结束: done={done} 需补回放={replay} 需重跑={retry} / {total}"
-                   f" — 该起下一轮了")
+    # A round ends when harbor exits, not when the agent count hits zero. All
+    # twelve agents disappear together during a mass backoff -- they are killed
+    # at once and each sleeps 240-300s before resuming -- and reading that as
+    # the end of a round is the same mistake as reading it as a stall.
+    harbor = subprocess.run(["pgrep", "-af", "harbor run"], capture_output=True,
+                            text=True).stdout
+    harbor_up = any(f"--job-name {PREFIX}" in ln for ln in harbor.splitlines())
+    if not harbor_up and prev.get("harbor_up", True):
+        out.append(f"轮次结束（harbor 已退出）: done={done} 需补回放={replay}"
+                   f" 需重跑={retry} / {total}")
     # The killer coming back looks like a step change in outside kills.
     if killed - prev.get("killed", killed) >= 4:
         out.append(f"批量猝死: 被外部杀 {prev.get('killed')} -> {killed}"
@@ -176,6 +187,7 @@ def main() -> int:
                                  "killed": killed,
                                  "spend": spend, "left": left, "agents": n,
                                  "suspect": n_susp, "samples": samples, "busy": busy,
+                                 "harbor_up": harbor_up,
                                  "at": time.time()}))
     return 0
 
